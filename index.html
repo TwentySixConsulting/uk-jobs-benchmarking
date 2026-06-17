@@ -236,13 +236,73 @@ function toggleQuarter(qid, on) {
   if (on) {
     if (activeQuarters.has(qid) && loadedQuarters.has(qid)) return;
     activeQuarters.add(qid);
-    loadQuarter(qid).then(() => { rebuildAllData(); buildSidebar(); applyFilters(); });
+    showProgressBanner();
+    loadQuarter(qid).then(() => { rebuildAllData(); buildSidebar(); applyFilters(); hideProgressBanner(); });
   } else {
     activeQuarters.delete(qid);
     rebuildAllData();
     buildSidebar();
     applyFilters();
   }
+}
+
+function selectAllQuarters() {
+  const toLoad = quartersIndex.filter(q => !activeQuarters.has(q.id) || !loadedQuarters.has(q.id));
+  if (toLoad.length === 0) return;
+  quartersIndex.forEach(q => activeQuarters.add(q.id));
+  buildSidebar();
+  showProgressBanner();
+  // Load sequentially so we don't hammer the network and so progress messages make sense.
+  const totalNew = toLoad.length;
+  let done = 0;
+  const next = () => {
+    if (done >= totalNew) {
+      rebuildAllData(); buildSidebar(); applyFilters(); hideProgressBanner();
+      return;
+    }
+    const q = toLoad[done];
+    updateProgressBanner('Loading ' + q.id + ' (' + (done+1) + '/' + totalNew + ')…');
+    loadQuarter(q.id).then(() => {
+      done++;
+      // Stream results in: after each quarter finishes, rebuild allData so
+      // already-loaded quarters become searchable while the rest catches up.
+      rebuildAllData();
+      // Only refresh the table/charts at the end to avoid heavy work mid-load.
+      updateRecordCount();
+      next();
+    }).catch(err => { console.error('Failed to load', q.id, err); done++; next(); });
+  };
+  next();
+}
+
+function clearQuartersExceptLatest() {
+  if (quartersIndex.length === 0) return;
+  const latest = quartersIndex[0].id;
+  activeQuarters.clear();
+  activeQuarters.add(latest);
+  rebuildAllData();
+  buildSidebar();
+  applyFilters();
+}
+
+function showProgressBanner() {
+  let el = document.getElementById('progressBanner');
+  if (el) { el.style.display = 'flex'; return; }
+  el = document.createElement('div');
+  el.id = 'progressBanner';
+  el.style.cssText = 'position:fixed;top:62px;right:20px;background:var(--accent);color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,0.15);display:flex;align-items:center;gap:10px;';
+  el.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;border-top-color:#fff;border-color:rgba(255,255,255,0.35);"></span><span id="progressBannerText">Loading…</span>';
+  document.body.appendChild(el);
+}
+
+function updateProgressBanner(text) {
+  const t = document.getElementById('progressBannerText');
+  if (t) t.textContent = text;
+}
+
+function hideProgressBanner() {
+  const el = document.getElementById('progressBanner');
+  if (el) el.style.display = 'none';
 }
 
 function switchTab(idx) {
@@ -267,7 +327,11 @@ function buildSidebar() {
   const sb = document.getElementById("sidebar");
   let html = "";
   // Quarters section — controls which per-quarter CSVs are loaded into memory
-  html += "<details open><summary>Quarters</summary><div class=\"checklist\" id=\"checklist_Quarters\">";
+  const totalAvail = quartersIndex.reduce((a, q) => a + (q.rows||0), 0);
+  html += "<details open><summary>Quarters</summary>" +
+    "<span class=\"toggle-all\" onclick=\"selectAllQuarters()\">Select all (" + totalAvail.toLocaleString() + " rows)</span>" +
+    " &nbsp;·&nbsp; <span class=\"toggle-all\" onclick=\"clearQuartersExceptLatest()\">Reset to latest</span>" +
+    "<div class=\"checklist\" id=\"checklist_Quarters\">";
   quartersIndex.forEach(q => {
     const id = "chk_quarter_" + q.id;
     const checked = activeQuarters.has(q.id) ? " checked" : "";
@@ -291,18 +355,26 @@ function buildSidebar() {
   });
   CHECKLIST_FIELDS.forEach(field => {
     const values = getUniqueValues(field);
+    // Preserve user selection across rebuilds. First time: select all. After
+    // that: keep whatever the user has, and auto-include any values that just
+    // appeared (so newly-loaded quarters don't surprise-filter their own data).
+    if (!(filters[field] instanceof Set)) {
+      filters[field] = new Set(values);
+    } else {
+      values.forEach(v => { if (!filters[field].has(v)) filters[field].add(v); });
+    }
     const isOpen = field !== "Industry" ? "open" : "";
     html += "<details " + isOpen + "><summary>" + field + "</summary><span class=\"toggle-all\" onclick=\"toggleAll('" + field + "')\">Select All / Clear</span><div class=\"checklist\" id=\"checklist_" + field + "\">";
     values.forEach(val => {
       const id = ("chk_" + field + "_" + val).replace(/[^a-zA-Z0-9]/g, "_");
-      html += "<label><input type=\"checkbox\" id=\"" + id + "\" checked onchange=\"updateChecklist('" + field + "')\"><span>" + escHtml(val) + "</span><span class=\"checklist-count\" id=\"cnt_" + id + "\"></span></label>";
+      const isChecked = filters[field].has(val) ? " checked" : "";
+      html += "<label><input type=\"checkbox\" id=\"" + id + "\"" + isChecked + " onchange=\"updateChecklist('" + field + "')\"><span>" + escHtml(val) + "</span><span class=\"checklist-count\" id=\"cnt_" + id + "\"></span></label>";
     });
     html += "</div></details>";
   });
   html += "<details open><summary>Date Range</summary><div class=\"date-range\"><input type=\"date\" id=\"filter_dateFrom\" onchange=\"filters.dateFrom=this.value;applyFilters();\"><input type=\"date\" id=\"filter_dateTo\" onchange=\"filters.dateTo=this.value;applyFilters();\"></div></details>";
   html += "<button class=\"reset-btn\" onclick=\"resetFilters()\">Reset All Filters</button>";
   sb.innerHTML = html;
-  CHECKLIST_FIELDS.forEach(field => { filters[field] = new Set(getUniqueValues(field)); });
   // Restore except inputs from saved state (or start with one empty input)
   const savedExcepts = (filters.titleExcept || []).slice();
   filters.titleExcept = [];
