@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UK Jobs Benchmarking</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f5f6f8; --card: #ffffff; --accent: #3b5998; --accent-light: #edf2f7;
+  --text: #2c3e50; --text-muted: #6b7280; --border: #e2e8f0;
+  --chip-bg: #edf2f7; --chip-text: #4a5568;
+  --warning: #fef9c3; --warning-border: #fde047; --sidebar-w: 300px;
+}
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; color: var(--text); background: var(--bg); line-height: 1.5; }
+.header { background: var(--card); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.record-count { background: var(--accent); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: 14px; font-weight: 600; }
+.tab-bar { display: flex; gap: 0; background: var(--card); border-bottom: 2px solid var(--border); padding: 0 24px; }
+.tab-btn { padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; background: none; color: var(--text-muted); border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.2s; }
+.tab-btn:hover { color: var(--text); background: var(--accent-light); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.chips-bar { padding: 8px 24px; display: flex; flex-wrap: wrap; gap: 6px; min-height: 20px; border-bottom: 1px solid var(--border); background: var(--card); }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--chip-bg); color: var(--chip-text); padding: 3px 10px; border-radius: 14px; font-size: 12px; }
+.chip-remove { cursor: pointer; font-weight: bold; opacity: 0.6; font-size: 14px; line-height: 1; }
+.chip-remove:hover { opacity: 1; }
+.main-layout { display: flex; height: calc(100vh - 140px); }
+.sidebar { width: var(--sidebar-w); min-width: var(--sidebar-w); background: var(--card); border-right: 1px solid var(--border); overflow-y: auto; padding: 12px; flex-shrink: 0; }
+.sidebar.collapsed { width: 0; min-width: 0; padding: 0; overflow: hidden; }
+.sidebar details { border-bottom: 1px solid var(--border); padding: 8px 0; }
+.sidebar summary { cursor: pointer; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); padding: 4px 0; user-select: none; }
+.sidebar summary:hover { color: var(--text); }
+.sidebar input[type="text"], .sidebar input[type="date"] { width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; margin-top: 6px; outline: none; }
+.sidebar input[type="text"]:focus, .sidebar input[type="date"]:focus { border-color: var(--accent); }
+.checklist { max-height: 200px; overflow-y: auto; margin-top: 6px; }
+.checklist label { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 13px; cursor: pointer; }
+.checklist label:hover { background: var(--accent-light); border-radius: 4px; }
+.checklist-count { margin-left: auto; color: var(--text-muted); font-size: 11px; }
+.toggle-all { font-size: 12px; color: var(--accent); cursor: pointer; margin-top: 4px; display: inline-block; }
+.toggle-all:hover { text-decoration: underline; }
+.date-range { display: flex; gap: 8px; margin-top: 6px; }
+.date-range input { flex: 1; }
+.reset-btn { display: block; width: 100%; padding: 8px; margin-top: 12px; background: var(--accent-light); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text); }
+.reset-btn:hover { background: var(--border); }
+.content { flex: 1; overflow-y: auto; padding: 20px; }
+.stats-grid { display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
+.stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; width: 100%; }
+.stat-card .stat-values { grid-template-columns: repeat(6, 1fr); }
+.stat-card .stat-and-chart { display: flex; align-items: center; gap: 24px; }
+.stat-card .stat-and-chart .stat-values { flex: 1; }
+.stat-card .stat-and-chart .stat-range { flex-shrink: 0; }
+.stat-card h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.stat-card h3 .count { background: var(--accent-light); padding: 2px 8px; border-radius: 10px; font-size: 12px; color: var(--text-muted); }
+.stat-values { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px; margin: 10px 0; }
+.stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
+.stat-value { font-size: 16px; font-weight: 600; }
+.stat-range { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+.table-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.export-btn { background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.export-btn:hover { opacity: 0.9; }
+.table-container { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.table-scroll { overflow-x: auto; }
+table { min-width: 1400px; border-collapse: collapse; font-size: 12px; table-layout: auto; }
+thead th { background: #f8fafc; padding: 4px 6px; text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-muted); cursor: pointer; user-select: none; white-space: nowrap; border-bottom: 2px solid var(--border); position: sticky; top: 0; }
+thead th:hover { color: var(--text); }
+thead th .sort-arrow { margin-left: 4px; font-size: 10px; }
+tbody td { padding: 2px 6px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 1.2; }
+tbody td.desc-cell { min-width: 350px; max-width: 500px; white-space: normal; overflow: visible; font-size: 11px; color: var(--text); line-height: 1.3; word-break: break-word; }
+tbody tr:hover { background: #f8fafc; }
+.pagination { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--border); font-size: 13px; }
+.pagination button { padding: 6px 14px; border: 1px solid var(--border); background: var(--card); border-radius: 6px; cursor: pointer; font-size: 13px; }
+.pagination button:disabled { opacity: 0.4; cursor: default; }
+.pagination button:not(:disabled):hover { background: var(--accent-light); }
+.page-size-select { border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 13px; }
+.page-info { color: var(--text-muted); }
+.loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.95); display: flex; align-items: center; justify-content: center; z-index: 999; flex-direction: column; gap: 16px; }
+.spinner { width: 40px; height: 40px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.charts-section { margin-bottom: 24px; }
+.charts-section h2 { font-size: 16px; font-weight: 600; margin-bottom: 14px; color: var(--text); }
+.charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.charts-row.full { grid-template-columns: 1fr; }
+.chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.chart-card h3 { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+.chart-card .chart-subtitle { font-size: 11px; color: var(--text-muted); margin-top: -6px; margin-bottom: 10px; }
+.chart-container { position: relative; width: 100%; }
+.chart-container.tall { height: 320px; }
+.chart-container.medium { height: 260px; }
+.hide-btn { padding: 2px 8px; font-size: 10px; border: 1px solid var(--border); background: var(--card); border-radius: 4px; cursor: pointer; color: var(--text-muted); white-space: nowrap; }
+.hide-btn:hover { background: var(--accent-light); color: var(--text); }
+tr.row-hidden td:not(.action-cell) { opacity: 0.4; }
+tr.row-hidden td.action-cell .hide-btn { background: var(--accent-light); color: var(--text); border-color: var(--accent); }
+.action-cell { width: 60px; text-align: center; padding: 2px 4px !important; }
+.title-option { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: var(--text-muted); cursor: pointer; user-select: none; }
+.except-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; margin-top: 10px; margin-bottom: 4px; }
+.except-row { display: flex; gap: 4px; margin-top: 4px; }
+.except-row input { flex: 1; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; outline: none; }
+.except-row input:focus { border-color: var(--accent); }
+.except-remove { padding: 0 8px; background: var(--accent-light); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; color: var(--text-muted); font-size: 14px; line-height: 1; }
+.except-remove:hover { background: var(--border); color: var(--text); }
+</style>
+</head>
+<body>
+<div class="loading-overlay" id="loading"><div class="spinner"></div><div>Loading data...</div></div>
+<div class="header">
+  <h1>UK Jobs Benchmarking</h1>
+  <span class="record-count" id="recordCount">0 records</span>
+</div>
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab(0)">All UK Jobs</button>
+</div>
+<div class="chips-bar" id="chipsBar"></div>
+<div class="main-layout">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="content" id="content">
+    <div class="stats-grid" id="statsGrid"></div>
+    <div class="charts-section">
+      <h2>Salary Trends &amp; Breakdown</h2>
+      <div class="charts-row full">
+        <div class="chart-card"><h3>Median Annual Salary by Quarter</h3><p class="chart-subtitle">P25 / Median / P75 bands</p><div class="chart-container tall"><canvas id="chartTimeline"></canvas></div></div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card"><h3>Median Annual Salary by Function</h3><p class="chart-subtitle">Top 12 functions by record count</p><div class="chart-container tall"><canvas id="chartFunction"></canvas></div></div>
+        <div class="chart-card"><h3>Median Annual Salary by Job Level</h3><p class="chart-subtitle">Ordered by seniority</p><div class="chart-container tall"><canvas id="chartLevel"></canvas></div></div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card"><h3>Top Regions</h3><p class="chart-subtitle">Record count and median annual salary</p><div class="chart-container medium"><canvas id="chartRegion"></canvas></div></div>
+        <div class="chart-card"><h3>Annual Salary Distribution</h3><p class="chart-subtitle">Histogram of annual Min Salary</p><div class="chart-container medium"><canvas id="chartDistribution"></canvas></div></div>
+      </div>
+    </div>
+    <div class="table-toolbar">
+      <span id="tableInfo" style="color:var(--text-muted);font-size:13px;"></span>
+      <button class="export-btn" onclick="exportCSV()">Download CSV</button>
+    </div>
+    <div class="table-container"><div class="table-scroll"><table><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table></div><div class="pagination" id="pagination"></div></div>
+  </div>
+</div>
+<script>
+function escHtml(str) { if (!str) return ""; return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+// State
+let quartersIndex = [];           // metadata from quarters/quarters.json (newest first)
+let loadedQuarters = new Map();   // qid -> array of parsed row objects
+let activeQuarters = new Set();   // qids currently displayed
+let loadingQuarters = new Set();  // qids currently being fetched
+let currentTab = 0;
+let allDataSets = [[]];
+let allData = [];
+let filteredData = [];
+let currentPage = 0;
+let pageSize = 100;
+let sortState = { column: "Date", direction: "desc" };
+
+const TABLE_COLUMNS = ["Id","Date","Job Title","Company","Min Salary","Max Salary","Salary Period","Location","Region","Function","Job Level","Industry","Job Description"];
+const NUMERIC_COLS = new Set(["Id","Min Salary","Max Salary"]);
+const CHECKLIST_FIELDS = ["Function","Job Level","Industry","Region","Salary Period"];
+const TEXT_FIELDS = ["Job Title","Company","Location"];
+
+const filters = { "Job Title":"", "Company":"", "Location":"", "Function":new Set(), "Job Level":new Set(), "Industry":new Set(), "Region":new Set(), "Salary Period":new Set(), dateFrom:"", dateTo:"", titleIncludeDesc:false, titleExcept:[] };
+const hiddenIds = new Set();
+
+const JOB_LEVEL_ORDER = ["Support","Senior Support","Apprentices","Officer/Team Member","Team Leader/Supervisor or Senior Advisor/Officer","Manager","Senior Manager","Head of Function","Director","Chief Executive"];
+const SALARY_PERIOD_ORDER = ["year","month","week","day","hour"];
+const STATS_PERIODS = new Set(["year","day","hour"]);
+
+// Load quarter index, then fetch only the most recent quarter by default.
+fetch("quarters/quarters.json")
+  .then(r => r.json())
+  .then(idx => {
+    quartersIndex = idx.quarters || [];
+    if (quartersIndex.length === 0) throw new Error("quarters.json has no quarters");
+    const latest = quartersIndex[0].id;
+    activeQuarters.add(latest);
+    return loadQuarter(latest);
+  })
+  .then(() => {
+    switchTab(0);
+    document.getElementById("loading").style.display = "none";
+  })
+  .catch(err => {
+    document.getElementById("loading").innerHTML = "<div style='color:#c53030;padding:20px;text-align:center;'>Failed to load data:<br>" + escHtml(err.message) + "</div>";
+  });
+
+function loadQuarter(qid) {
+  if (loadedQuarters.has(qid)) return Promise.resolve();
+  const meta = quartersIndex.find(q => q.id === qid);
+  if (!meta) return Promise.reject(new Error("Unknown quarter " + qid));
+  loadingQuarters.add(qid);
+  updateLoadingChips();
+  // A quarter can be split across multiple shard files; load them in sequence
+  // and concatenate the rows.
+  const files = meta.files || [];
+  const collected = [];
+  const fetchOne = (fileName) => new Promise((resolve, reject) => {
+    Papa.parse("quarters/" + fileName, {
+      download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
+      complete: results => {
+        results.data.filter(r => r["Id"] != null).forEach(r => {
+          r._titleLower = (r["Job Title"]||"").toString().toLowerCase();
+          r._companyLower = (r["Company"]||"").toString().toLowerCase();
+          r._locationLower = (r["Location"]||"").toString().toLowerCase();
+          r._descLower = (r["Job Description"]||"").toString().toLowerCase();
+          if (!r["Job Description"] || r["Job Description"] === "nan") r["Job Description"] = "";
+          r._quarter = qid;
+          collected.push(r);
+        });
+        resolve();
+      },
+      error: err => reject(err)
+    });
+  });
+  return files.reduce((p, fn) => p.then(() => fetchOne(fn)), Promise.resolve())
+    .then(() => {
+      loadedQuarters.set(qid, collected);
+      loadingQuarters.delete(qid);
+      updateLoadingChips();
+    });
+}
+
+function rebuildAllData() {
+  allData = [];
+  // Preserve quarter index order (newest first) so dates render sensibly
+  quartersIndex.forEach(q => {
+    if (activeQuarters.has(q.id)) {
+      const rows = loadedQuarters.get(q.id);
+      if (rows) allData = allData.concat(rows);
+    }
+  });
+  allDataSets[0] = allData;
+}
+
+function toggleQuarter(qid, on) {
+  if (on) {
+    if (activeQuarters.has(qid) && loadedQuarters.has(qid)) return;
+    activeQuarters.add(qid);
+    loadQuarter(qid).then(() => { rebuildAllData(); buildSidebar(); applyFilters(); });
+  } else {
+    activeQuarters.delete(qid);
+    rebuildAllData();
+    buildSidebar();
+    applyFilters();
+  }
+}
+
+function switchTab(idx) {
+  currentTab = idx;
+  document.querySelectorAll(".tab-btn").forEach((b,i) => b.classList.toggle("active", i===idx));
+  rebuildAllData();
+  buildSidebar();
+  applyFilters();
+}
+
+function getUniqueValues(field) {
+  const vals = new Set();
+  allData.forEach(r => { if (r[field] != null && r[field] !== "") vals.add(r[field]); });
+  return [...vals].sort((a, b) => {
+    if (field === "Job Level") return JOB_LEVEL_ORDER.indexOf(a) - JOB_LEVEL_ORDER.indexOf(b);
+    if (field === "Salary Period") return SALARY_PERIOD_ORDER.indexOf(a) - SALARY_PERIOD_ORDER.indexOf(b);
+    return String(a).localeCompare(String(b));
+  });
+}
+
+function buildSidebar() {
+  const sb = document.getElementById("sidebar");
+  let html = "";
+  // Quarters section — controls which per-quarter CSVs are loaded into memory
+  html += "<details open><summary>Quarters</summary><div class=\"checklist\" id=\"checklist_Quarters\">";
+  quartersIndex.forEach(q => {
+    const id = "chk_quarter_" + q.id;
+    const checked = activeQuarters.has(q.id) ? " checked" : "";
+    const loading = loadingQuarters.has(q.id) ? " <span style=\"color:var(--accent);font-size:11px;\">loading…</span>" : "";
+    html += "<label><input type=\"checkbox\" id=\"" + id + "\"" + checked + " onchange=\"toggleQuarter('" + q.id + "', this.checked)\"><span>" + q.id + "</span><span class=\"checklist-count\">" + q.rows.toLocaleString() + loading + "</span></label>";
+  });
+  html += "</div></details>";
+  TEXT_FIELDS.forEach(field => {
+    if (field === "Job Title") {
+      html += "<details open><summary>Job Title</summary>" +
+        "<input type=\"text\" id=\"filter_Job Title\" placeholder=\"Search job titles...\" oninput=\"handleTextFilter('Job Title', this.value)\">" +
+        "<label class=\"title-option\"><input type=\"checkbox\" id=\"filter_titleIncludeDesc\"" + (filters.titleIncludeDesc?" checked":"") + " onchange=\"filters.titleIncludeDesc=this.checked;applyFilters();\">Include search in description</label>" +
+        "<div class=\"except-label\">Except (exclude word from title)</div>" +
+        "<div id=\"titleExceptInputs\"></div>" +
+        "<span class=\"toggle-all\" onclick=\"addTitleExceptInput('')\">+ Add another</span>" +
+        "</details>";
+    } else {
+      const ph = "Search " + field.toLowerCase() + "...";
+      html += "<details open><summary>" + field + "</summary><input type=\"text\" id=\"filter_" + field + "\" placeholder=\"" + ph + "\" oninput=\"handleTextFilter('" + field + "', this.value)\"></details>";
+    }
+  });
+  CHECKLIST_FIELDS.forEach(field => {
+    const values = getUniqueValues(field);
+    const isOpen = field !== "Industry" ? "open" : "";
+    html += "<details " + isOpen + "><summary>" + field + "</summary><span class=\"toggle-all\" onclick=\"toggleAll('" + field + "')\">Select All / Clear</span><div class=\"checklist\" id=\"checklist_" + field + "\">";
+    values.forEach(val => {
+      const id = ("chk_" + field + "_" + val).replace(/[^a-zA-Z0-9]/g, "_");
+      html += "<label><input type=\"checkbox\" id=\"" + id + "\" checked onchange=\"updateChecklist('" + field + "')\"><span>" + escHtml(val) + "</span><span class=\"checklist-count\" id=\"cnt_" + id + "\"></span></label>";
+    });
+    html += "</div></details>";
+  });
+  html += "<details open><summary>Date Range</summary><div class=\"date-range\"><input type=\"date\" id=\"filter_dateFrom\" onchange=\"filters.dateFrom=this.value;applyFilters();\"><input type=\"date\" id=\"filter_dateTo\" onchange=\"filters.dateTo=this.value;applyFilters();\"></div></details>";
+  html += "<button class=\"reset-btn\" onclick=\"resetFilters()\">Reset All Filters</button>";
+  sb.innerHTML = html;
+  CHECKLIST_FIELDS.forEach(field => { filters[field] = new Set(getUniqueValues(field)); });
+  // Restore except inputs from saved state (or start with one empty input)
+  const savedExcepts = (filters.titleExcept || []).slice();
+  filters.titleExcept = [];
+  if (savedExcepts.length === 0) addTitleExceptInput('');
+  else savedExcepts.forEach(v => addTitleExceptInput(v));
+  // Restore Job Title text input value
+  const titleInput = document.getElementById('filter_Job Title');
+  if (titleInput && filters['Job Title']) titleInput.value = filters['Job Title'];
+}
+
+function addTitleExceptInput(val) {
+  if (!filters.titleExcept) filters.titleExcept = [];
+  filters.titleExcept.push(val || '');
+  const container = document.getElementById('titleExceptInputs');
+  if (!container) return;
+  const row = document.createElement('div');
+  row.className = 'except-row';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Exclude word...';
+  input.value = val || '';
+  let timer;
+  input.oninput = function() {
+    const i = Array.from(container.children).indexOf(row);
+    if (i >= 0) filters.titleExcept[i] = this.value.toLowerCase().trim();
+    clearTimeout(timer);
+    timer = setTimeout(applyFilters, 300);
+  };
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'except-remove';
+  removeBtn.textContent = '×';
+  removeBtn.title = 'Remove this exception';
+  removeBtn.onclick = function() {
+    const i = Array.from(container.children).indexOf(row);
+    if (i >= 0) filters.titleExcept.splice(i, 1);
+    row.remove();
+    if (container.children.length === 0) addTitleExceptInput('');
+    applyFilters();
+  };
+  row.appendChild(input);
+  row.appendChild(removeBtn);
+  container.appendChild(row);
+}
+
+function getStatsData() {
+  return filteredData.filter(r => !hiddenIds.has(r['Id']));
+}
+
+function toggleHidden(id) {
+  if (hiddenIds.has(id)) hiddenIds.delete(id);
+  else hiddenIds.add(id);
+  updateRecordCount(); updateStats(); updateCharts(); renderTable();
+}
+
+function toggleAll(field) {
+  const values = getUniqueValues(field);
+  const allChecked = filters[field].size === values.length;
+  const container = document.getElementById('checklist_' + field);
+  const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+  if (allChecked) { filters[field].clear(); checkboxes.forEach(cb => cb.checked = false); }
+  else { filters[field] = new Set(values); checkboxes.forEach(cb => cb.checked = true); }
+  applyFilters();
+}
+
+function updateChecklist(field) {
+  const values = getUniqueValues(field);
+  const container = document.getElementById('checklist_' + field);
+  const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+  filters[field].clear();
+  checkboxes.forEach((cb, i) => { if (cb.checked) filters[field].add(values[i]); });
+  applyFilters();
+}
+
+function resetFilters() {
+  TEXT_FIELDS.forEach(field => { filters[field] = ''; const el = document.getElementById('filter_' + field); if (el) el.value = ''; });
+  CHECKLIST_FIELDS.forEach(field => { filters[field] = new Set(getUniqueValues(field)); const c = document.getElementById('checklist_' + field); if (c) c.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true); });
+  filters.dateFrom = ''; filters.dateTo = '';
+  const df = document.getElementById('filter_dateFrom'); const dt = document.getElementById('filter_dateTo');
+  if (df) df.value = ''; if (dt) dt.value = '';
+  filters.titleIncludeDesc = false;
+  const cb = document.getElementById('filter_titleIncludeDesc'); if (cb) cb.checked = false;
+  filters.titleExcept = [];
+  const ec = document.getElementById('titleExceptInputs'); if (ec) ec.innerHTML = '';
+  addTitleExceptInput('');
+  hiddenIds.clear();
+  applyFilters();
+}
+
+const _textFilterTimers = {};
+function handleTextFilter(field, value) {
+  clearTimeout(_textFilterTimers[field]);
+  _textFilterTimers[field] = setTimeout(() => { filters[field] = value.toLowerCase(); applyFilters(); }, 300);
+}
+
+function applyFilters() {
+  const titleQ = filters['Job Title'], companyQ = filters['Company'], locationQ = filters['Location'];
+  const includeDesc = filters.titleIncludeDesc;
+  const excepts = (filters.titleExcept || []).filter(e => e && e.length > 0);
+  filteredData = allData.filter(row => {
+    if (titleQ) {
+      const inTitle = row._titleLower.includes(titleQ);
+      const inDesc = includeDesc && row._descLower.includes(titleQ);
+      if (!inTitle && !inDesc) return false;
+    }
+    for (let i = 0; i < excepts.length; i++) {
+      if (row._titleLower.includes(excepts[i])) return false;
+    }
+    if (companyQ && !row._companyLower.includes(companyQ)) return false;
+    if (locationQ && !row._locationLower.includes(locationQ)) return false;
+    if (filters['Function'].size && !filters['Function'].has(row['Function'])) return false;
+    if (filters['Job Level'].size && !filters['Job Level'].has(row['Job Level'])) return false;
+    if (filters['Industry'].size && !filters['Industry'].has(row['Industry'])) return false;
+    if (filters['Region'].size && !filters['Region'].has(row['Region'])) return false;
+    if (filters['Salary Period'].size && !filters['Salary Period'].has(row['Salary Period'])) return false;
+    if (filters.dateFrom && (row['Date'] || '') < filters.dateFrom) return false;
+    if (filters.dateTo && (row['Date'] || '') > filters.dateTo) return false;
+    return true;
+  });
+  sortData(); currentPage = 0;
+  updateRecordCount(); updateStats(); updateCharts(); renderTable(); updateChips(); updateFilterCounts();
+}
+
+function sortData() {
+  const col = sortState.column, dir = sortState.direction === 'asc' ? 1 : -1;
+  const isNum = NUMERIC_COLS.has(col);
+  filteredData.sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if (va == null) va = ''; if (vb == null) vb = '';
+    if (isNum) return (Number(va) - Number(vb)) * dir;
+    return String(va).localeCompare(String(vb)) * dir;
+  });
+}
+
+function setSort(col) {
+  if (sortState.column === col) sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+  else { sortState.column = col; sortState.direction = 'asc'; }
+  sortData(); renderTable();
+}
+
+function percentile(sorted, p) {
+  if (sorted.length === 0) return 0;
+  const idx = (p / 100) * (sorted.length - 1);
+  const lo = Math.floor(idx), frac = idx - lo;
+  if (lo + 1 < sorted.length) return sorted[lo] + frac * (sorted[lo + 1] - sorted[lo]);
+  return sorted[lo];
+}
+
+function formatCurrency(val, period) {
+  const d = (period === 'hour' || period === 'day') ? 2 : 0;
+  return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: d, minimumFractionDigits: d }).format(val);
+}
+
+function updateStats() {
+  const grid = document.getElementById('statsGrid');
+  const groups = {};
+  getStatsData().forEach(row => {
+    const sp = row['Salary Period'] || 'unknown';
+    if (!groups[sp]) groups[sp] = [];
+    const val = Number(row['Min Salary']);
+    if (!isNaN(val) && val > 0) groups[sp].push(val);
+  });
+  const sortedPeriods = Object.keys(groups).filter(p => STATS_PERIODS.has(p)).sort((a, b) => {
+    const ia = SALARY_PERIOD_ORDER.indexOf(a), ib = SALARY_PERIOD_ORDER.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+  if (sortedPeriods.length === 0) { grid.innerHTML = '<div class="empty-state">No data matches the current filters.</div>'; return; }
+  let html = '';
+  sortedPeriods.forEach(period => {
+    const values = groups[period];
+    const sorted = [...values].sort((a, b) => a - b);
+    const n = sorted.length;
+    const p5 = percentile(sorted, 5), p25 = percentile(sorted, 25), p50 = percentile(sorted, 50);
+    const p75 = percentile(sorted, 75), p95 = percentile(sorted, 95);
+    const mean = values.reduce((a, b) => a + b, 0) / n;
+    const iqr = p75 - p25;
+    const wLow = sorted.find(v => v >= Math.max(sorted[0], p25 - 1.5 * iqr)) || sorted[0];
+    const wHigh = [...sorted].reverse().find(v => v <= Math.min(sorted[n-1], p75 + 1.5 * iqr)) || sorted[n-1];
+    const outlierCount = sorted.filter(v => v < wLow || v > wHigh).length;
+    const svgW = 260, svgH = 44, pad = 14;
+    const range = (wHigh - wLow) || 1;
+    const x = v => pad + (Math.max(0, Math.min(1, (v - wLow) / range))) * (svgW - 2 * pad);
+    const svg = `<svg width="${svgW}" height="${svgH}" style="display:block;"><line x1="${x(wLow)}" y1="${svgH/2}" x2="${x(wHigh)}" y2="${svgH/2}" stroke="#94a3b8" stroke-width="1.5"/><line x1="${x(wLow)}" y1="${svgH/2-8}" x2="${x(wLow)}" y2="${svgH/2+8}" stroke="#94a3b8" stroke-width="1.5"/><line x1="${x(wHigh)}" y1="${svgH/2-8}" x2="${x(wHigh)}" y2="${svgH/2+8}" stroke="#94a3b8" stroke-width="1.5"/><rect x="${x(p25)}" y="${svgH/2-12}" width="${Math.max(2, x(p75)-x(p25))}" height="24" fill="rgba(59,89,152,0.12)" stroke="var(--accent)" stroke-width="1.5" rx="3"/><line x1="${x(p50)}" y1="${svgH/2-12}" x2="${x(p50)}" y2="${svgH/2+12}" stroke="var(--accent)" stroke-width="2.5"/><polygon points="${x(mean)},${svgH/2-5} ${x(mean)+4},${svgH/2} ${x(mean)},${svgH/2+5} ${x(mean)-4},${svgH/2}" fill="#e53e3e"/><text x="${x(wLow)}" y="${svgH-2}" text-anchor="middle" font-size="9" fill="#94a3b8">${formatCurrency(wLow,period)}</text><text x="${x(wHigh)}" y="${svgH-2}" text-anchor="middle" font-size="9" fill="#94a3b8">${formatCurrency(wHigh,period)}</text></svg>`;
+    const label = period==='year'?'Annual':period==='day'?'Daily':period==='hour'?'Hourly':period;
+    const outlierNote = outlierCount > 0 ? `<span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${outlierCount} outlier${outlierCount!==1?'s':''} excluded from chart</span>` : '';
+    html += `<div class="stat-card"><h3>${label} <span class="count">${n.toLocaleString()} records</span></h3><div class="stat-and-chart"><div class="stat-values"><div class="stat-item"><div class="stat-label">P25</div><div class="stat-value">${formatCurrency(p25,period)}</div></div><div class="stat-item"><div class="stat-label">Median</div><div class="stat-value">${formatCurrency(p50,period)}</div></div><div class="stat-item"><div class="stat-label">P75</div><div class="stat-value">${formatCurrency(p75,period)}</div></div><div class="stat-item"><div class="stat-label">Mean</div><div class="stat-value">${formatCurrency(mean,period)}</div></div><div class="stat-item"><div class="stat-label">P5</div><div class="stat-value">${formatCurrency(p5,period)}</div></div><div class="stat-item"><div class="stat-label">P95</div><div class="stat-value">${formatCurrency(p95,period)}</div></div></div><div class="stat-range">${svg}${outlierNote}</div></div></div>`;
+  });
+  grid.innerHTML = html;
+}
+
+// Table
+function renderTable() {
+  const thead = document.getElementById('tableHead');
+  let headHtml = '<tr><th class="action-cell"></th>';
+  TABLE_COLUMNS.forEach(col => {
+    const arrow = sortState.column === col ? (sortState.direction === 'asc' ? ' ▲' : ' ▼') : '';
+    headHtml += `<th onclick="setSort('${col}')">${col}<span class="sort-arrow">${arrow}</span></th>`;
+  });
+  thead.innerHTML = headHtml + '</tr>';
+  const tbody = document.getElementById('tableBody');
+  const start = currentPage * pageSize, end = Math.min(start + pageSize, filteredData.length);
+  const pageData = filteredData.slice(start, end);
+  if (pageData.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="${TABLE_COLUMNS.length + 1}" style="text-align:center;padding:40px;color:var(--text-muted);">No matching records</td></tr>`;
+  } else {
+    const fragment = document.createDocumentFragment();
+    pageData.forEach(row => {
+      const tr = document.createElement('tr');
+      const isHidden = hiddenIds.has(row['Id']);
+      if (isHidden) tr.className = 'row-hidden';
+      const tdAct = document.createElement('td');
+      tdAct.className = 'action-cell';
+      const hideBtn = document.createElement('button');
+      hideBtn.className = 'hide-btn';
+      hideBtn.textContent = isHidden ? 'Show' : 'Hide';
+      hideBtn.onclick = () => toggleHidden(row['Id']);
+      tdAct.appendChild(hideBtn);
+      tr.appendChild(tdAct);
+      TABLE_COLUMNS.forEach(col => {
+        const td = document.createElement('td');
+        let val = row[col];
+        if (val == null || val === 'nan' || val === 'NaN') val = '';
+        if (col === 'Min Salary' || col === 'Max Salary') {
+          td.textContent = val ? formatCurrency(Number(val), row['Salary Period']) : '';
+        } else if (col === 'Job Description') {
+          td.className = 'desc-cell';
+          const full = String(val);
+          td.textContent = full.length > 300 ? full.substring(0, 300) + '...' : full;
+          if (full.length > 30) td.title = full;
+        } else {
+          td.textContent = String(val);
+          if (String(val).length > 30) td.title = String(val);
+        }
+        tr.appendChild(td);
+      });
+      fragment.appendChild(tr);
+    });
+    tbody.innerHTML = '';
+    tbody.appendChild(fragment);
+  }
+  document.getElementById('tableInfo').textContent = filteredData.length > 0 ? `Showing ${start+1}–${end} of ${filteredData.length.toLocaleString()}` : '';
+  renderPagination();
+}
+
+function renderPagination() {
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / pageSize));
+  document.getElementById('pagination').innerHTML = `
+    <div><button onclick="goPage(currentPage-1)" ${currentPage===0?'disabled':''}>← Previous</button></div>
+    <div class="page-info">Page ${currentPage+1} of ${totalPages} &nbsp;|&nbsp;
+      <select class="page-size-select" onchange="pageSize=Number(this.value);currentPage=0;renderTable();">
+        ${[25,50,100,250].map(n=>`<option value="${n}" ${n===pageSize?'selected':''}>${n} per page</option>`).join('')}
+      </select></div>
+    <div><button onclick="goPage(currentPage+1)" ${currentPage>=totalPages-1?'disabled':''}>Next →</button></div>`;
+}
+
+function goPage(p) {
+  const tp = Math.ceil(filteredData.length / pageSize);
+  if (p >= 0 && p < tp) { currentPage = p; renderTable(); document.querySelector('.table-container').scrollIntoView({behavior:'smooth',block:'start'}); }
+}
+
+function updateRecordCount() {
+  const total = filteredData.length;
+  const hiddenInView = filteredData.reduce((acc, r) => acc + (hiddenIds.has(r['Id']) ? 1 : 0), 0);
+  const loadedNote = activeQuarters.size > 0 ? ' · ' + [...activeQuarters].sort().reverse().join(' + ') : '';
+  let txt = total.toLocaleString() + ' records';
+  if (hiddenInView > 0) txt += ' · ' + hiddenInView + ' hidden';
+  txt += loadedNote;
+  document.getElementById('recordCount').textContent = txt;
+}
+
+function updateLoadingChips() {
+  // Re-render chips bar so any loading-state quarter chip can show its spinner
+  if (typeof updateChips === 'function') updateChips();
+}
+
+function updateChips() {
+  const bar = document.getElementById('chipsBar');
+  let html = '';
+  // Quarter chips — one per loaded/active or currently-loading quarter
+  activeQuarters.forEach(qid => {
+    const loading = loadingQuarters.has(qid);
+    const label = loading ? `Quarter: ${qid} (loading…)` : `Quarter: ${qid}`;
+    html += `<span class="chip" style="background:var(--accent-light);color:var(--accent);font-weight:600;">${label} <span class="chip-remove" onclick="toggleQuarter('${qid}', false)">×</span></span>`;
+  });
+  TEXT_FIELDS.forEach(field => { if (filters[field]) html += `<span class="chip">${field}: "${filters[field]}" <span class="chip-remove" onclick="clearTextFilter('${field}')">×</span></span>`; });
+  CHECKLIST_FIELDS.forEach(field => {
+    const allVals = getUniqueValues(field), selected = filters[field];
+    if (selected.size > 0 && selected.size < allVals.length) {
+      const label = selected.size <= 2 ? [...selected].join(', ') : `${selected.size} selected`;
+      html += `<span class="chip">${field}: ${label} <span class="chip-remove" onclick="clearChecklistFilter('${field}')">×</span></span>`;
+    }
+  });
+  if (filters.dateFrom) html += `<span class="chip">From: ${filters.dateFrom} <span class="chip-remove" onclick="clearDateFilter('dateFrom')">×</span></span>`;
+  if (filters.dateTo) html += `<span class="chip">To: ${filters.dateTo} <span class="chip-remove" onclick="clearDateFilter('dateTo')">×</span></span>`;
+  bar.innerHTML = html;
+}
+
+function clearTextFilter(field) { filters[field] = ''; document.getElementById('filter_' + field).value = ''; applyFilters(); }
+function clearChecklistFilter(field) { filters[field] = new Set(getUniqueValues(field)); const c = document.getElementById('checklist_' + field); if (c) c.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true); applyFilters(); }
+function clearDateFilter(which) { filters[which] = ''; document.getElementById('filter_' + which).value = ''; applyFilters(); }
+
+function updateFilterCounts() {
+  CHECKLIST_FIELDS.forEach(field => {
+    const values = getUniqueValues(field);
+    const counts = {}; values.forEach(v => counts[v] = 0);
+    allData.forEach(row => {
+      let pass = true;
+      TEXT_FIELDS.forEach(tf => {
+        const q = filters[tf]; if (!q) return;
+        if (tf === 'Job Title') {
+          const inTitle = row._titleLower.includes(q);
+          const inDesc = filters.titleIncludeDesc && row._descLower.includes(q);
+          if (!inTitle && !inDesc) pass = false;
+        }
+        else if (tf === 'Company') { if (!row._companyLower.includes(q)) pass = false; }
+        else if (tf === 'Location') { if (!row._locationLower.includes(q)) pass = false; }
+      });
+      const excepts = (filters.titleExcept || []).filter(e => e);
+      for (let i = 0; i < excepts.length; i++) {
+        if (row._titleLower.includes(excepts[i])) { pass = false; break; }
+      }
+      CHECKLIST_FIELDS.forEach(cf => { if (cf === field) return; if (filters[cf].size && !filters[cf].has(row[cf])) pass = false; });
+      if (filters.dateFrom && (row['Date']||'') < filters.dateFrom) pass = false;
+      if (filters.dateTo && (row['Date']||'') > filters.dateTo) pass = false;
+      if (pass && row[field] != null) { if (counts[row[field]] !== undefined) counts[row[field]]++; }
+    });
+    values.forEach(val => {
+      const id = ('cnt_chk_' + field + '_' + val).replace(/[^a-zA-Z0-9]/g, '_');
+      const el = document.getElementById(id); if (el) el.textContent = counts[val].toLocaleString();
+    });
+  });
+}
+
+// Charts
+const CHART_COLORS = {
+  blue: 'rgba(59,89,152,0.85)', blueFill: 'rgba(59,89,152,0.15)', blueLight: 'rgba(59,89,152,0.4)',
+  red: 'rgba(220,53,69,0.8)', green: 'rgba(40,167,69,0.8)', gold: 'rgba(201,168,76,0.85)', goldFill: 'rgba(201,168,76,0.15)',
+  grey: 'rgba(108,117,125,0.7)',
+  palette: ['#3b5998','#c9a84c','#2ecc71','#e74c3c','#9b59b6','#1abc9c','#e67e22','#34495e','#f39c12','#16a085','#d35400','#8e44ad']
+};
+const chartDefaults = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a202c', titleFont: { size: 12 }, bodyFont: { size: 11 }, padding: 10, cornerRadius: 6 } },
+  scales: { x: { grid: { display: false }, ticks: { font: { size: 11 } } }, y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 } } } }
+};
+let chartTimeline, chartFunction, chartLevel, chartRegion, chartDistribution;
+
+function gbp(val) { return new Intl.NumberFormat('en-GB', { style:'currency', currency:'GBP', maximumFractionDigits:0 }).format(val); }
+
+function getQuarter(dateStr) {
+  if (!dateStr) return null;
+  const [y, m] = dateStr.split('-').map(Number);
+  return `${y} Q${Math.ceil(m/3)}`;
+}
+
+function updateCharts() {
+  const annual = getStatsData().filter(r => r['Salary Period'] === 'year' && r['Min Salary'] > 0);
+  updateTimelineChart(annual); updateFunctionChart(annual); updateLevelChart(annual); updateRegionChart(annual); updateDistributionChart(annual);
+}
+
+function updateTimelineChart(annual) {
+  const ctx = document.getElementById('chartTimeline');
+  const byQ = {};
+  annual.forEach(r => { const q = getQuarter(r['Date']); if (q) { if (!byQ[q]) byQ[q] = []; byQ[q].push(r['Min Salary']); } });
+  // Auto-detect quarter range from data
+  const allQs = Object.keys(byQ).sort();
+  const labels = allQs.length > 0 ? allQs : ['No data'];
+  const medians = [], p25s = [], p75s = [], counts = [];
+  labels.forEach(q => {
+    const vals = (byQ[q] || []).sort((a,b) => a-b);
+    if (vals.length > 0) { p25s.push(percentile(vals,25)); medians.push(percentile(vals,50)); p75s.push(percentile(vals,75)); counts.push(vals.length); }
+    else { p25s.push(null); medians.push(null); p75s.push(null); counts.push(0); }
+  });
+  if (chartTimeline) chartTimeline.destroy();
+  chartTimeline = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [
+      { label:'P75', data:p75s, borderColor:CHART_COLORS.blueLight, backgroundColor:CHART_COLORS.blueFill, borderWidth:1.5, borderDash:[4,3], pointRadius:3, fill:'+1', tension:0.3 },
+      { label:'Median', data:medians, borderColor:CHART_COLORS.blue, backgroundColor:CHART_COLORS.blue, borderWidth:2.5, pointRadius:5, pointBackgroundColor:'#fff', pointBorderWidth:2.5, fill:false, tension:0.3 },
+      { label:'P25', data:p25s, borderColor:CHART_COLORS.blueLight, backgroundColor:CHART_COLORS.blueFill, borderWidth:1.5, borderDash:[4,3], pointRadius:3, fill:'-1', tension:0.3 }
+    ]},
+    options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, legend: { display:true, position:'top', labels:{boxWidth:14,font:{size:11}} },
+      tooltip: { ...chartDefaults.plugins.tooltip, callbacks: { label: ctx => `${ctx.dataset.label}: ${gbp(ctx.parsed.y)}`, afterBody: items => `Records: ${counts[items[0].dataIndex].toLocaleString()}` } }
+    }, scales: { x: { grid:{display:false}, ticks:{font:{size:12}} }, y: { grid:{color:'#f0f0f0'}, ticks:{font:{size:11}, callback: v => gbp(v)} } } }
+  });
+}
+
+function updateFunctionChart(annual) {
+  const ctx = document.getElementById('chartFunction');
+  const byFunc = {};
+  annual.forEach(r => { const f = r['Function']; if (!f) return; if (!byFunc[f]) byFunc[f] = []; byFunc[f].push(r['Min Salary']); });
+  const sorted = Object.entries(byFunc).sort((a,b) => b[1].length - a[1].length).slice(0, 12);
+  const labels = sorted.map(([f]) => f.length > 25 ? f.substring(0,23)+'...' : f);
+  const fullLabels = sorted.map(([f]) => f);
+  const medians = sorted.map(([,v]) => percentile([...v].sort((a,b)=>a-b), 50));
+  const counts = sorted.map(([,v]) => v.length);
+  if (chartFunction) chartFunction.destroy();
+  chartFunction = new Chart(ctx, {
+    type:'bar', data:{ labels, datasets:[{ data:medians, backgroundColor:CHART_COLORS.palette.slice(0,12), borderRadius:4, barPercentage:0.75 }] },
+    options: { ...chartDefaults, indexAxis:'y', plugins: { ...chartDefaults.plugins, tooltip: { ...chartDefaults.plugins.tooltip, callbacks: { title: items => fullLabels[items[0].dataIndex], label: ctx => `Median: ${gbp(ctx.parsed.x)}`, afterLabel: ctx => `Records: ${counts[ctx.dataIndex].toLocaleString()}` } } },
+      scales: { x: { grid:{color:'#f0f0f0'}, ticks:{font:{size:10}, callback:v=>gbp(v)} }, y: { grid:{display:false}, ticks:{font:{size:10}} } } }
+  });
+}
+
+function updateLevelChart(annual) {
+  const ctx = document.getElementById('chartLevel');
+  const byLevel = {};
+  annual.forEach(r => { const l = r['Job Level']; if (!l) return; if (!byLevel[l]) byLevel[l] = []; byLevel[l].push(r['Min Salary']); });
+  const ordered = JOB_LEVEL_ORDER.filter(l => byLevel[l] && byLevel[l].length > 0);
+  const labels = ordered.map(l => l.length > 28 ? l.substring(0,26)+'...' : l);
+  const medians = ordered.map(l => percentile([...byLevel[l]].sort((a,b)=>a-b), 50));
+  const counts = ordered.map(l => byLevel[l].length);
+  const colors = ordered.map((_,i) => { const t = i/Math.max(1,ordered.length-1); return `rgb(${Math.round(200-t*141)},${Math.round(210-t*121)},${Math.round(230-t*78)})`; });
+  if (chartLevel) chartLevel.destroy();
+  chartLevel = new Chart(ctx, {
+    type:'bar', data:{ labels, datasets:[{ data:medians, backgroundColor:colors, borderRadius:4, barPercentage:0.75 }] },
+    options: { ...chartDefaults, indexAxis:'y', plugins: { ...chartDefaults.plugins, tooltip: { ...chartDefaults.plugins.tooltip, callbacks: { title: items => ordered[items[0].dataIndex], label: ctx => `Median: ${gbp(ctx.parsed.x)}`, afterLabel: ctx => `Records: ${counts[ctx.dataIndex].toLocaleString()}` } } },
+      scales: { x: { grid:{color:'#f0f0f0'}, ticks:{font:{size:10}, callback:v=>gbp(v)} }, y: { grid:{display:false}, ticks:{font:{size:10}} } } }
+  });
+}
+
+function updateRegionChart(annual) {
+  const ctx = document.getElementById('chartRegion');
+  const byRegion = {};
+  annual.forEach(r => { const reg = r['Region']; if (!reg) return; if (!byRegion[reg]) byRegion[reg] = []; byRegion[reg].push(r['Min Salary']); });
+  // Top 6 regions by count
+  const topRegions = Object.entries(byRegion).sort((a,b) => b[1].length - a[1].length).slice(0,6).map(([r]) => r);
+  const medians = topRegions.map(r => percentile([...byRegion[r]].sort((a,b)=>a-b), 50));
+  const p25s = topRegions.map(r => percentile([...byRegion[r]].sort((a,b)=>a-b), 25));
+  const p75s = topRegions.map(r => percentile([...byRegion[r]].sort((a,b)=>a-b), 75));
+  const counts = topRegions.map(r => byRegion[r].length);
+  if (chartRegion) chartRegion.destroy();
+  chartRegion = new Chart(ctx, {
+    type:'bar', data:{ labels:topRegions, datasets:[
+      { label:'P25', data:p25s, backgroundColor:'rgba(59,89,152,0.25)', borderRadius:4, barPercentage:0.6 },
+      { label:'Median', data:medians, backgroundColor:CHART_COLORS.blue, borderRadius:4, barPercentage:0.6 },
+      { label:'P75', data:p75s, backgroundColor:CHART_COLORS.gold, borderRadius:4, barPercentage:0.6 }
+    ]},
+    options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, legend: { display:true, position:'top', labels:{boxWidth:12,font:{size:11}} },
+      tooltip: { ...chartDefaults.plugins.tooltip, callbacks: { label: ctx => `${ctx.dataset.label}: ${gbp(ctx.parsed.y)}`, afterBody: items => `Records: ${counts[items[0].dataIndex].toLocaleString()}` } }
+    }, scales: { x: { grid:{display:false}, ticks:{font:{size:12}} }, y: { grid:{color:'#f0f0f0'}, ticks:{font:{size:11}, callback:v=>gbp(v)} } } }
+  });
+}
+
+function updateDistributionChart(annual) {
+  const ctx = document.getElementById('chartDistribution');
+  const vals = annual.map(r => r['Min Salary']).filter(v => v >= 15000 && v <= 200000);
+  const binSize = 10000, bins = {};
+  for (let b = 15000; b < 200000; b += binSize) bins[b] = 0;
+  vals.forEach(v => { const b = Math.floor(v/binSize)*binSize; if (bins[b] !== undefined) bins[b]++; });
+  const labels = Object.keys(bins).map(Number).sort((a,b) => a-b);
+  const data = labels.map(b => bins[b]);
+  const barLabels = labels.map(b => `${gbp(b)}-${gbp(b+binSize)}`);
+  if (chartDistribution) chartDistribution.destroy();
+  chartDistribution = new Chart(ctx, {
+    type:'bar', data:{ labels: labels.map(b => gbp(b)), datasets:[{ data, backgroundColor:CHART_COLORS.blue, borderRadius:2, barPercentage:1.0, categoryPercentage:0.95 }] },
+    options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, tooltip: { ...chartDefaults.plugins.tooltip, callbacks: { title: items => barLabels[items[0].dataIndex], label: ctx => `${ctx.parsed.y.toLocaleString()} records` } } },
+      scales: { x: { grid:{display:false}, ticks:{font:{size:9}, maxRotation:45, minRotation:45} }, y: { grid:{color:'#f0f0f0'}, ticks:{font:{size:11}}, title:{display:true, text:'Records', font:{size:11}} } } }
+  });
+}
+
+function exportCSV() {
+  const exportData = filteredData.map(row => { const out = {}; TABLE_COLUMNS.forEach(col => out[col] = row[col]); return out; });
+  const csv = Papa.unparse(exportData);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'filtered_export.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
