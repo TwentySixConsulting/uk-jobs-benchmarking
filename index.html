@@ -563,13 +563,27 @@ function goPage(p) {
 }
 
 function updateRecordCount() {
-  const total = filteredData.length;
+  const filtered = filteredData.length;
+  const loaded = allData.length;
+  const totalAvailable = quartersIndex.reduce((acc, q) => acc + (q.rows || 0), 0);
   const hiddenInView = filteredData.reduce((acc, r) => acc + (hiddenIds.has(r['Id']) ? 1 : 0), 0);
-  const loadedNote = activeQuarters.size > 0 ? ' · ' + [...activeQuarters].sort().reverse().join(' + ') : '';
-  let txt = total.toLocaleString() + ' records';
+
+  let txt = filtered.toLocaleString();
+  if (filtered !== loaded) txt += ' of ' + loaded.toLocaleString();
+  txt += ' records';
   if (hiddenInView > 0) txt += ' · ' + hiddenInView + ' hidden';
-  txt += loadedNote;
   document.getElementById('recordCount').textContent = txt;
+
+  // Secondary line: loaded vs total available across all quarters
+  let metaEl = document.getElementById('recordCountMeta');
+  if (!metaEl) {
+    metaEl = document.createElement('span');
+    metaEl.id = 'recordCountMeta';
+    metaEl.style.cssText = 'color:var(--text-muted);font-size:12px;margin-left:12px;';
+    document.getElementById('recordCount').insertAdjacentElement('afterend', metaEl);
+  }
+  const loadedQs = [...activeQuarters].sort().reverse().join(', ') || 'none';
+  metaEl.textContent = `loaded: ${loaded.toLocaleString()} (${loadedQs}) · total available across all quarters: ${totalAvailable.toLocaleString()}`;
 }
 
 function updateLoadingChips() {
