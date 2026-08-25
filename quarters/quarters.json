@@ -6,7 +6,8 @@
       "files": [
         "2026Q3.csv"
       ],
-      "bytes": 2385734
+      "bytes": 2385734,
+      "dataset": "Main scrape"
     },
     {
       "id": "2026Q2",
@@ -14,7 +15,8 @@
       "files": [
         "2026Q2.csv"
       ],
-      "bytes": 1031924
+      "bytes": 1031924,
+      "dataset": "Main scrape"
     },
     {
       "id": "2026Q1",
@@ -22,7 +24,8 @@
       "files": [
         "2026Q1.csv"
       ],
-      "bytes": 18902138
+      "bytes": 18902138,
+      "dataset": "Main scrape"
     },
     {
       "id": "2025Q4",
@@ -30,7 +33,8 @@
       "files": [
         "2025Q4.csv"
       ],
-      "bytes": 17623729
+      "bytes": 17623729,
+      "dataset": "Main scrape"
     },
     {
       "id": "2025Q3",
@@ -38,7 +42,8 @@
       "files": [
         "2025Q3.csv"
       ],
-      "bytes": 68317178
+      "bytes": 68317178,
+      "dataset": "Main scrape"
     },
     {
       "id": "2025Q2",
@@ -47,7 +52,8 @@
         "2025Q2_a.csv",
         "2025Q2_b.csv"
       ],
-      "bytes": 145042146
+      "bytes": 145042146,
+      "dataset": "Main scrape"
     },
     {
       "id": "2025Q1",
@@ -57,7 +63,8 @@
         "2025Q1_b.csv",
         "2025Q1_c.csv"
       ],
-      "bytes": 236693945
+      "bytes": 236693945,
+      "dataset": "Main scrape"
     },
     {
       "id": "2024Q4",
@@ -66,7 +73,8 @@
         "2024Q4_a.csv",
         "2024Q4_b.csv"
       ],
-      "bytes": 157979640
+      "bytes": 157979640,
+      "dataset": "Main scrape"
     },
     {
       "id": "2024Q3",
@@ -74,7 +82,28 @@
       "files": [
         "2024Q3.csv"
       ],
-      "bytes": 38140503
+      "bytes": 38140503,
+      "dataset": "Main scrape"
+    },
+    {
+      "id": "Scraped4:2026Q3",
+      "quarter": "2026Q3",
+      "dataset": "Scraped4",
+      "rows": 184937,
+      "files": [
+        "scraped4_2026Q3.csv"
+      ],
+      "bytes": 77453317
+    },
+    {
+      "id": "Scraped4:2026Q2",
+      "quarter": "2026Q2",
+      "dataset": "Scraped4",
+      "rows": 83873,
+      "files": [
+        "scraped4_2026Q2.csv"
+      ],
+      "bytes": 35415881
     }
   ]
 }

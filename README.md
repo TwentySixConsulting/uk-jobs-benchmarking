@@ -44,6 +44,53 @@ different set of pickle files. Older scrape data now exists only in this repo. R
 The script is kept for reference only. If you ever do need a genuine full rebuild,
 copy `quarters/` somewhere safe first.
 
+## The second dataset (scraped4)
+
+The portal now carries two datasets, tagged in a `Dataset` column:
+
+| Dataset | Rows | Source |
+| --- | ---: | --- |
+| Main scrape | 1,618,594 | `processed_scraped_data2026.csv` via `add_new_quarters.py` |
+| Scraped4 | 268,810 | Supabase table `twentysix_scraped4` via `build_scraped4.py` |
+| **Total** | **1,887,404** | |
+
+Scraped4 files are named `scraped4_<quarter>.csv` and listed in `quarters.json`
+with `"dataset": "Scraped4"`. They load only when ticked in the sidebar, which is
+grouped by dataset. The first page load still fetches the newest main-scrape
+quarter, so nobody pays for the big files unless they ask for them.
+
+To refresh it:
+
+```bash
+python3 build_scraped4.py --dry-run
+python3 build_scraped4.py
+```
+
+It reads Supabase credentials from `twentysix-salary-portal-v2/.env.local` and
+rewrites only the `scraped4_*` files, then merges its entries into
+`quarters.json`. Main-scrape files are never touched.
+
+### What is different about scraped4 data
+
+It comes from a different model and is missing most classification codes:
+
+- `Job Level` is **100% empty**, `Function` 98.6% empty, `Industry` 96.8% empty
+- 34.7% of rows have a salary of 0 (mostly expired listings). These are written
+  blank, not 0, so the table does not display a fake figure. The stats and charts
+  already require `Min Salary > 0`, so they are excluded from every average.
+- `Salary Period` is often the literal string `unresolvable`
+- The source `date` column is 63% relative text ("2 days ago"), 24% ISO
+  timestamps and 13% null, so dates are resolved against the scrape timestamp.
+  "N days left" is a closing date, not a posting date, and is not used.
+
+Empty values in `Function`, `Job Level`, `Industry`, `Region` and `Salary Period`
+are shown as **"Not classified"** rather than left blank. This is required, not
+cosmetic: `applyFilters` tests `filters[field].has(row[field])` against a value
+set built from non-blank values only, so a genuinely blank cell makes the entire
+row invisible. Normalising happens in `index.html` as each row is parsed, so no
+CSV needed rewriting — and it also restored the ~10,343 main-scrape rows with a
+blank Region that had been silently hidden.
+
 ## Running locally
 
 ```bash
@@ -55,6 +102,7 @@ open http://localhost:8000
 
 ```
 add_new_quarters.py   # additive top-up — run this after each scrape
+build_scraped4.py     # pulls the twentysix_scraped4 Supabase table
 build_quarters.py     # ORIGINAL full rebuild — do not run, it would lose data
 index.html            # single-page dashboard, fetches quarters/* on demand
 quarters/
