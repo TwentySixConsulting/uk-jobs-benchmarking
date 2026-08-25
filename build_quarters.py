@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
 """
+DO NOT RUN THIS. Use add_new_quarters.py instead.
+
+This script rebuilds every quarter file from the source CSV. That is no longer
+safe. The source was regenerated on 2026-07-01 and is now SMALLER than what is
+published in quarters/ (1,251,109 rows against 1,609,638), so running this would
+overwrite the published data with the smaller set and permanently lose roughly
+360,000 rows that exist nowhere else.
+
+Kept for reference only. See README.md, "Updating the data".
+
+--- original docstring follows ---
+
 Split the 2026 processed_scraped_data CSV (~2.6 GB) into per-quarter CSVs
 matching the 13-column schema used by the housing-association-benchmarking site.
 
@@ -10,6 +22,7 @@ Outputs:
     quarters/<YYYYQN>.csv  (one per quarter present in source)
     quarters/quarters.json (newest-first index for the web UI)
 """
+
 
 import csv
 import json
