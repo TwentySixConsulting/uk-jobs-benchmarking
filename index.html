@@ -290,6 +290,77 @@ function selectAllQuarters() {
   next();
 }
 
+const seenDatasets = new Set();
+
+function allDatasetNames() {
+  // Every dataset the manifest knows about, not just the ones already loaded.
+  // getUniqueValues() only sees loaded rows, which is why an unloaded dataset
+  // never used to appear in the Dataset filter.
+  const names = [];
+  quartersIndex.forEach(q => {
+    const ds = q.dataset || MAIN_DATASET;
+    if (names.indexOf(ds) === -1) names.push(ds);
+  });
+  allData.forEach(r => {
+    const ds = r['Dataset'];
+    if (ds && names.indexOf(ds) === -1) names.push(ds);
+  });
+  return names.sort((a, b) =>
+    a === MAIN_DATASET ? -1 : b === MAIN_DATASET ? 1 : String(a).localeCompare(String(b)));
+}
+
+function datasetQuarters(ds) {
+  return quartersIndex.filter(q => (q.dataset || MAIN_DATASET) === ds);
+}
+
+// "Present" means at least one of its quarters is in memory, so its rows are in
+// allData and it must stay ticked. Requiring every quarter would leave the main
+// scrape unticked on a normal page load (only the newest quarter loads by
+// default) and ticking another dataset would then hide all of it.
+function datasetIsLoaded(ds) {
+  return datasetQuarters(ds).some(q => activeQuarters.has(q.id) && loadedQuarters.has(q.id));
+}
+
+function datasetIsFullyLoaded(ds) {
+  const qs = datasetQuarters(ds);
+  return qs.length > 0 && qs.every(q => activeQuarters.has(q.id) && loadedQuarters.has(q.id));
+}
+
+function datasetRowCount(ds) {
+  return datasetQuarters(ds).reduce((a, q) => a + (q.rows || 0), 0);
+}
+
+// Ticking a dataset loads it if it isn't in memory yet, then filters on it.
+function toggleDataset(ds, on) {
+  if (!on) {
+    filters['Dataset'].delete(ds);
+    buildSidebar();
+    applyFilters();
+    return;
+  }
+  filters['Dataset'].add(ds);
+  if (datasetIsLoaded(ds)) { buildSidebar(); applyFilters(); return; }
+  const toLoad = datasetQuarters(ds).filter(q => !activeQuarters.has(q.id) || !loadedQuarters.has(q.id));
+  if (toLoad.length === 0) { buildSidebar(); applyFilters(); return; }
+  toLoad.forEach(q => activeQuarters.add(q.id));
+  buildSidebar();
+  showProgressBanner();
+  let done = 0;
+  const next = () => {
+    if (done >= toLoad.length) {
+      rebuildAllData(); buildSidebar(); applyFilters(); hideProgressBanner();
+      return;
+    }
+    const q = toLoad[done];
+    updateProgressBanner('Loading ' + ds + ' ' + (q.quarter || q.id) +
+      ' (' + (done + 1) + '/' + toLoad.length + ')…');
+    loadQuarter(q.id).then(() => {
+      done++; rebuildAllData(); updateRecordCount(); next();
+    }).catch(err => { console.error('Failed to load', q.id, err); done++; next(); });
+  };
+  next();
+}
+
 function clearQuartersExceptLatest() {
   if (quartersIndex.length === 0) return;
   const latest = quartersIndex[0].id;
@@ -388,6 +459,39 @@ function buildSidebar() {
     }
   });
   CHECKLIST_FIELDS.forEach(field => {
+    // Dataset is special: it lists every dataset in the manifest, including ones
+    // not loaded yet, and ticking one loads it. Otherwise a dataset you have not
+    // loaded is invisible here and there is no obvious way to reach it.
+    if (field === "Dataset") {
+      const names = allDatasetNames();
+      if (names.length < 2 && !names.some(n => !datasetIsLoaded(n))) return;
+      // Auto-tick a dataset only the first time it appears. Re-adding it on
+      // every rebuild would immediately undo the user's untick, because
+      // toggleDataset() calls buildSidebar() straight after.
+      names.forEach(ds => {
+        if (seenDatasets.has(ds)) return;
+        seenDatasets.add(ds);
+        if (datasetIsLoaded(ds)) filters['Dataset'].add(ds);
+      });
+      html += "<details open><summary>Dataset</summary><div class=\"checklist\" id=\"checklist_Dataset\">";
+      names.forEach(ds => {
+        const id = ("chk_Dataset_" + ds).replace(/[^a-zA-Z0-9]/g, "_");
+        const loaded = datasetIsLoaded(ds);
+        const isChecked = filters['Dataset'].has(ds) ? " checked" : "";
+        const busy = datasetQuarters(ds).some(q => loadingQuarters.has(q.id));
+        const note = busy
+          ? " <span style=\"color:var(--accent);font-size:11px;\">loading…</span>"
+          : (loaded
+              ? (datasetIsFullyLoaded(ds) ? "" : " <span style=\"font-size:11px;\">part loaded</span>")
+              : " <span style=\"font-size:11px;\">tick to load</span>");
+        html += "<label><input type=\"checkbox\" id=\"" + id + "\"" + isChecked +
+          " onchange=\"toggleDataset('" + ds.replace(/'/g, "\\'") + "', this.checked)\">" +
+          "<span>" + escHtml(ds) + "</span><span class=\"checklist-count\">" +
+          datasetRowCount(ds).toLocaleString() + note + "</span></label>";
+      });
+      html += "</div></details>";
+      return;
+    }
     const values = getUniqueValues(field);
     // Preserve user selection across rebuilds. First time: select all. After
     // that: keep whatever the user has, and auto-include any values that just
@@ -464,6 +568,7 @@ function toggleHidden(id) {
 }
 
 function toggleAll(field) {
+  if (field === 'Dataset') return;
   const values = getUniqueValues(field);
   const allChecked = filters[field].size === values.length;
   const container = document.getElementById('checklist_' + field);
@@ -484,7 +589,13 @@ function updateChecklist(field) {
 
 function resetFilters() {
   TEXT_FIELDS.forEach(field => { filters[field] = ''; const el = document.getElementById('filter_' + field); if (el) el.value = ''; });
-  CHECKLIST_FIELDS.forEach(field => { filters[field] = new Set(getUniqueValues(field)); const c = document.getElementById('checklist_' + field); if (c) c.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true); });
+  CHECKLIST_FIELDS.forEach(field => {
+    if (field === 'Dataset') { filters[field] = new Set(allDatasetNames().filter(datasetIsLoaded)); return; }
+    filters[field] = new Set(getUniqueValues(field));
+    const c = document.getElementById('checklist_' + field);
+    if (c) c.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+  });
+  buildSidebar();
   filters.dateFrom = ''; filters.dateTo = '';
   const df = document.getElementById('filter_dateFrom'); const dt = document.getElementById('filter_dateTo');
   if (df) df.value = ''; if (dt) dt.value = '';
@@ -721,7 +832,13 @@ function updateChips() {
 }
 
 function clearTextFilter(field) { filters[field] = ''; document.getElementById('filter_' + field).value = ''; applyFilters(); }
-function clearChecklistFilter(field) { filters[field] = new Set(getUniqueValues(field)); const c = document.getElementById('checklist_' + field); if (c) c.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true); applyFilters(); }
+function clearChecklistFilter(field) {
+  if (field === 'Dataset') { filters[field] = new Set(allDatasetNames().filter(datasetIsLoaded)); buildSidebar(); applyFilters(); return; }
+  filters[field] = new Set(getUniqueValues(field));
+  const c = document.getElementById('checklist_' + field);
+  if (c) c.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+  applyFilters();
+}
 function clearDateFilter(which) { filters[which] = ''; document.getElementById('filter_' + which).value = ''; applyFilters(); }
 
 function updateFilterCounts() {
