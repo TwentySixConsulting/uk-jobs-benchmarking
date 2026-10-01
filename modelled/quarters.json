@@ -1,0 +1,41 @@
+{
+  "quarters": [
+    {
+      "id": "2026Q3",
+      "rows": 264200,
+      "files": [
+        "modelled_2026Q3_a.csv",
+        "modelled_2026Q3_b.csv"
+      ],
+      "bytes": 113607429,
+      "dataset": "October 2026, Modelled Dataset"
+    },
+    {
+      "id": "2026Q2",
+      "rows": 61243,
+      "files": [
+        "modelled_2026Q2.csv"
+      ],
+      "bytes": 24862468,
+      "dataset": "October 2026, Modelled Dataset"
+    },
+    {
+      "id": "2026Q1",
+      "rows": 167,
+      "files": [
+        "modelled_2026Q1.csv"
+      ],
+      "bytes": 75521,
+      "dataset": "October 2026, Modelled Dataset"
+    },
+    {
+      "id": "2025Q4",
+      "rows": 5,
+      "files": [
+        "modelled_2025Q4.csv"
+      ],
+      "bytes": 2041,
+      "dataset": "October 2026, Modelled Dataset"
+    }
+  ]
+}

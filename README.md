@@ -4,7 +4,28 @@ Static benchmarking dashboard for the full UK jobs dataset scraped by TwentySix 
 
 Live (after GitHub Pages is enabled): https://twentysixconsulting.github.io/uk-jobs-benchmarking/
 
-## How it works
+## Two tabs
+
+The page opens on **October 2026, Modelled Dataset** (tab 1), which loads all of its
+325,615 rows straight away from `modelled/`. **All UK Jobs** (tab 2) is the original
+portal (Main scrape + Scraped4 from `quarters/`), unchanged, and is only fetched when
+someone clicks it. Each tab keeps its own filters, sort and hidden rows. Job Level is
+hidden on tab 1 because the modelled file has no job levels.
+
+### Rebuilding the modelled dataset
+
+```bash
+python3 build_modelled.py --dry-run   # counts only
+python3 build_modelled.py             # rewrites modelled/ from ~/df_325k_final_run_10_26.csv
+python3 build_modelled.py --source path/to/new_export.csv
+```
+
+It only ever touches `modelled/`, never `quarters/`. Dates are resolved the same way as
+scraped4 (relative "3 days ago" text against the scrape timestamp), and Ids run 1..N
+within the tab, separate from tab 2. To rename the tab, change `DATASET_LABEL` in the
+script and the `TABS` label in `index.html`.
+
+## How it works (All UK Jobs tab)
 
 - The source CSV (`processed_scraped_data2026.csv`, ~2.6 GB, 1.6 M rows) is split into one CSV per `year_quarter` value by `build_quarters.py`.
 - Each quarter file is sharded if larger than 80 MB so every file stays under GitHub's 100 MB serving limit.
@@ -103,8 +124,13 @@ open http://localhost:8000
 ```
 add_new_quarters.py   # additive top-up — run this after each scrape
 build_scraped4.py     # pulls the twentysix_scraped4 Supabase table
+build_modelled.py     # builds modelled/ (tab 1) from the refined export
 build_quarters.py     # ORIGINAL full rebuild — do not run, it would lose data
-index.html            # single-page dashboard, fetches quarters/* on demand
+index.html            # single-page dashboard, two tabs, fetches CSVs on demand
+modelled/             # tab 1: same layout as quarters/
+  quarters.json
+  modelled_2026Q3_a.csv
+  ...
 quarters/
   quarters.json       # manifest, newest quarter first
   2026Q2.csv          # single-file quarter

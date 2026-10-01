@@ -111,7 +111,8 @@ tr.row-hidden td.action-cell .hide-btn { background: var(--accent-light); color:
   <span class="record-count" id="recordCount">0 records</span>
 </div>
 <div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab(0)">All UK Jobs</button>
+  <button class="tab-btn active" onclick="switchTab(0)">October 2026, Modelled Dataset</button>
+  <button class="tab-btn" onclick="switchTab(1)">All UK Jobs</button>
 </div>
 <div class="chips-bar" id="chipsBar"></div>
 <div class="main-layout">
@@ -125,7 +126,7 @@ tr.row-hidden td.action-cell .hide-btn { background: var(--accent-light); color:
       </div>
       <div class="charts-row">
         <div class="chart-card"><h3>Median Annual Salary by Function</h3><p class="chart-subtitle">Top 12 functions by record count</p><div class="chart-container tall"><canvas id="chartFunction"></canvas></div></div>
-        <div class="chart-card"><h3>Median Annual Salary by Job Level</h3><p class="chart-subtitle">Ordered by seniority</p><div class="chart-container tall"><canvas id="chartLevel"></canvas></div></div>
+        <div class="chart-card" id="chartLevelCard"><h3>Median Annual Salary by Job Level</h3><p class="chart-subtitle">Ordered by seniority</p><div class="chart-container tall"><canvas id="chartLevel"></canvas></div></div>
       </div>
       <div class="charts-row">
         <div class="chart-card"><h3>Top Regions</h3><p class="chart-subtitle">Record count and median annual salary</p><div class="chart-container medium"><canvas id="chartRegion"></canvas></div></div>
@@ -142,12 +143,22 @@ tr.row-hidden td.action-cell .hide-btn { background: var(--accent-light); color:
 <script>
 function escHtml(str) { if (!str) return ""; return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-// State
-let quartersIndex = [];           // metadata from quarters/quarters.json (newest first)
+// Tabs. Each tab has its own manifest directory and its own copy of the state
+// below; switchTab() swaps the copies in and out, so everything else just reads
+// the usual globals. The modelled dataset loads in full on open; All UK Jobs
+// keeps its quarter-at-a-time behaviour and is only fetched when first clicked.
+const TABS = [
+  { label: "October 2026, Modelled Dataset", dir: "modelled/", loadAll: true,  hideFields: ["Job Level"] },
+  { label: "All UK Jobs",                    dir: "quarters/", loadAll: false, hideFields: [] },
+];
+const tabState = TABS.map(() => null);
+
+// State (for the current tab)
+let quartersIndex = [];           // metadata from <dir>quarters.json (newest first)
 let loadedQuarters = new Map();   // qid -> array of parsed row objects
 let activeQuarters = new Set();   // qids currently displayed
 let loadingQuarters = new Set();  // qids currently being fetched
-let currentTab = 0;
+let currentTab = -1;
 let allDataSets = [[]];
 let allData = [];
 let filteredData = [];
@@ -155,9 +166,12 @@ let currentPage = 0;
 let pageSize = 100;
 let sortState = { column: "Date", direction: "desc" };
 
-const TABLE_COLUMNS = ["Id","Dataset","Date","Job Title","Company","Min Salary","Max Salary","Salary Period","Location","Region","Function","Job Level","Industry","Job Description"];
+const ALL_TABLE_COLUMNS = ["Id","Dataset","Date","Job Title","Company","Min Salary","Max Salary","Salary Period","Location","Region","Function","Job Level","Industry","Job Description"];
+const ALL_CHECKLIST_FIELDS = ["Dataset","Function","Job Level","Industry","Region","Salary Period"];
+// Narrowed per tab by its hideFields (see switchTab).
+let TABLE_COLUMNS = ALL_TABLE_COLUMNS;
+let CHECKLIST_FIELDS = ALL_CHECKLIST_FIELDS;
 const NUMERIC_COLS = new Set(["Id","Min Salary","Max Salary"]);
-const CHECKLIST_FIELDS = ["Dataset","Function","Job Level","Industry","Region","Salary Period"];
 
 // Rows are dropped by applyFilters when a checklist field is blank, because the
 // filter set is built from non-blank values only. Older files have no Dataset
@@ -168,34 +182,56 @@ const BLANK_FILL = "Not classified";
 const FILLED_FIELDS = ["Function","Job Level","Industry","Region","Salary Period"];
 const TEXT_FIELDS = ["Job Title","Company","Location"];
 
-const filters = { "Job Title":"", "Company":"", "Location":"", "Dataset":new Set(), "Function":new Set(), "Job Level":new Set(), "Industry":new Set(), "Region":new Set(), "Salary Period":new Set(), dateFrom:"", dateTo:"", titleIncludeDesc:false, titleExcept:[] };
-const hiddenIds = new Set();
+function newFilters() {
+  return { "Job Title":"", "Company":"", "Location":"", "Dataset":new Set(), "Function":new Set(), "Job Level":new Set(), "Industry":new Set(), "Region":new Set(), "Salary Period":new Set(), dateFrom:"", dateTo:"", titleIncludeDesc:false, titleExcept:[] };
+}
+let filters = newFilters();
+let hiddenIds = new Set();
 
 const JOB_LEVEL_ORDER = ["Support","Senior Support","Apprentices","Officer/Team Member","Team Leader/Supervisor or Senior Advisor/Officer","Manager","Senior Manager","Head of Function","Director","Chief Executive"];
 const SALARY_PERIOD_ORDER = ["year","month","week","day","hour"];
 const STATS_PERIODS = new Set(["year","day","hour"]);
 
-// Load quarter index, then fetch only the most recent quarter by default.
-fetch("quarters/quarters.json")
-  .then(r => r.json())
-  .then(idx => {
-    quartersIndex = idx.quarters || [];
-    if (quartersIndex.length === 0) throw new Error("quarters.json has no quarters");
-    const latest = quartersIndex[0].id;
-    activeQuarters.add(latest);
-    return loadQuarter(latest);
-  })
-  .then(() => {
-    switchTab(0);
-    document.getElementById("loading").style.display = "none";
-  })
-  .catch(err => {
-    document.getElementById("loading").innerHTML = "<div style='color:#c53030;padding:20px;text-align:center;'>Failed to load data:<br>" + escHtml(err.message) + "</div>";
-  });
+// Fetch a tab's manifest, then either every quarter (loadAll) or just the
+// newest one. Runs once per tab; afterwards switching is instant.
+function initTab(idx) {
+  const st = tabState[idx];
+  const tab = TABS[idx];
+  const overlay = document.getElementById("loading");
+  overlay.style.display = "";
+  overlay.innerHTML = "<div class='spinner'></div><div id='loadingText'>Loading " + escHtml(tab.label) + "…</div>";
+  const say = t => { const el = document.getElementById("loadingText"); if (el) el.textContent = t; };
+  return fetch(tab.dir + "quarters.json")
+    .then(r => r.json())
+    .then(idx2 => {
+      st.quartersIndex = idx2.quarters || [];
+      if (st.quartersIndex.length === 0) throw new Error("quarters.json has no quarters");
+      const toLoad = tab.loadAll ? st.quartersIndex : [st.quartersIndex[0]];
+      toLoad.forEach(q => st.activeQuarters.add(q.id));
+      if (idx === currentTab) quartersIndex = st.quartersIndex;
+      return toLoad.reduce((p, q, k) => p.then(() => {
+        if (toLoad.length > 1) say("Loading " + tab.label + ": " + q.id + " (" + (k + 1) + "/" + toLoad.length + ")…");
+        return loadQuarter(q.id, st);
+      }), Promise.resolve());
+    })
+    .then(() => {
+      st.ready = true;
+      if (idx === currentTab) { switchTab(idx, true); overlay.style.display = "none"; }
+    })
+    .catch(err => {
+      st.initPromise = null;
+      if (idx === currentTab) overlay.innerHTML = "<div style='color:#c53030;padding:20px;text-align:center;'>Failed to load data:<br>" + escHtml(err.message) + "</div>";
+    });
+}
 
-function loadQuarter(qid) {
+// st is the owning tab's state, captured up front so a load that finishes
+// after the user has switched tabs still lands in the right tab.
+function loadQuarter(qid, st) {
+  st = st || tabState[currentTab];
+  const dir = TABS[st.tab].dir;
+  const loadedQuarters = st.loadedQuarters, loadingQuarters = st.loadingQuarters;
   if (loadedQuarters.has(qid)) return Promise.resolve();
-  const meta = quartersIndex.find(q => q.id === qid);
+  const meta = st.quartersIndex.find(q => q.id === qid);
   if (!meta) return Promise.reject(new Error("Unknown quarter " + qid));
   loadingQuarters.add(qid);
   updateLoadingChips();
@@ -204,7 +240,7 @@ function loadQuarter(qid) {
   const files = meta.files || [];
   const collected = [];
   const fetchOne = (fileName) => new Promise((resolve, reject) => {
-    Papa.parse("quarters/" + fileName, {
+    Papa.parse(dir + fileName, {
       download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
       complete: results => {
         results.data.filter(r => r["Id"] != null).forEach(r => {
@@ -252,7 +288,8 @@ function toggleQuarter(qid, on) {
     if (activeQuarters.has(qid) && loadedQuarters.has(qid)) return;
     activeQuarters.add(qid);
     showProgressBanner();
-    loadQuarter(qid).then(() => { rebuildAllData(); buildSidebar(); applyFilters(); hideProgressBanner(); });
+    const st = tabState[currentTab];
+    loadQuarter(qid, st).then(() => { if (st.tab !== currentTab) return; rebuildAllData(); buildSidebar(); applyFilters(); hideProgressBanner(); });
   } else {
     activeQuarters.delete(qid);
     rebuildAllData();
@@ -269,28 +306,30 @@ function selectAllQuarters() {
   showProgressBanner();
   // Load sequentially so we don't hammer the network and so progress messages make sense.
   const totalNew = toLoad.length;
+  const st = tabState[currentTab];
   let done = 0;
   const next = () => {
+    const here = st.tab === currentTab;
     if (done >= totalNew) {
-      rebuildAllData(); buildSidebar(); applyFilters(); hideProgressBanner();
+      if (here) { rebuildAllData(); buildSidebar(); applyFilters(); }
+      hideProgressBanner();
       return;
     }
     const q = toLoad[done];
-    updateProgressBanner('Loading ' + q.id + ' (' + (done+1) + '/' + totalNew + ')…');
-    loadQuarter(q.id).then(() => {
+    if (here) updateProgressBanner('Loading ' + q.id + ' (' + (done+1) + '/' + totalNew + ')…');
+    loadQuarter(q.id, st).then(() => {
       done++;
       // Stream results in: after each quarter finishes, rebuild allData so
       // already-loaded quarters become searchable while the rest catches up.
-      rebuildAllData();
       // Only refresh the table/charts at the end to avoid heavy work mid-load.
-      updateRecordCount();
+      if (st.tab === currentTab) { rebuildAllData(); updateRecordCount(); }
       next();
     }).catch(err => { console.error('Failed to load', q.id, err); done++; next(); });
   };
   next();
 }
 
-const seenDatasets = new Set();
+let seenDatasets = new Set();
 
 function allDatasetNames() {
   // Every dataset the manifest knows about, not just the ones already loaded.
@@ -345,17 +384,20 @@ function toggleDataset(ds, on) {
   toLoad.forEach(q => activeQuarters.add(q.id));
   buildSidebar();
   showProgressBanner();
+  const st = tabState[currentTab];
   let done = 0;
   const next = () => {
+    const here = st.tab === currentTab;
     if (done >= toLoad.length) {
-      rebuildAllData(); buildSidebar(); applyFilters(); hideProgressBanner();
+      if (here) { rebuildAllData(); buildSidebar(); applyFilters(); }
+      hideProgressBanner();
       return;
     }
     const q = toLoad[done];
-    updateProgressBanner('Loading ' + ds + ' ' + (q.quarter || q.id) +
+    if (here) updateProgressBanner('Loading ' + ds + ' ' + (q.quarter || q.id) +
       ' (' + (done + 1) + '/' + toLoad.length + ')…');
-    loadQuarter(q.id).then(() => {
-      done++; rebuildAllData(); updateRecordCount(); next();
+    loadQuarter(q.id, st).then(() => {
+      done++; if (st.tab === currentTab) { rebuildAllData(); updateRecordCount(); } next();
     }).catch(err => { console.error('Failed to load', q.id, err); done++; next(); });
   };
   next();
@@ -391,9 +433,36 @@ function hideProgressBanner() {
   if (el) el.style.display = 'none';
 }
 
-function switchTab(idx) {
+function getGlobals() {
+  return { quartersIndex, loadedQuarters, activeQuarters, loadingQuarters, filters, hiddenIds, sortState, currentPage, seenDatasets };
+}
+function setGlobals(st) {
+  ({ quartersIndex, loadedQuarters, activeQuarters, loadingQuarters, filters, hiddenIds, sortState, currentPage, seenDatasets } = st);
+}
+
+function switchTab(idx, force) {
+  if (idx === currentTab && !force) return;
+  if (currentTab >= 0 && tabState[currentTab]) Object.assign(tabState[currentTab], getGlobals());
+  if (!tabState[idx]) {
+    tabState[idx] = { tab: idx, ready: false, initPromise: null, quartersIndex: [], loadedQuarters: new Map(),
+      activeQuarters: new Set(), loadingQuarters: new Set(), filters: newFilters(), hiddenIds: new Set(),
+      sortState: { column: "Date", direction: "desc" }, currentPage: 0, seenDatasets: new Set() };
+  }
   currentTab = idx;
+  setGlobals(tabState[idx]);
+  const hide = new Set(TABS[idx].hideFields);
+  TABLE_COLUMNS = ALL_TABLE_COLUMNS.filter(c => !hide.has(c));
+  CHECKLIST_FIELDS = ALL_CHECKLIST_FIELDS.filter(c => !hide.has(c));
+  document.getElementById("chartLevelCard").style.display = hide.has("Job Level") ? "none" : "";
   document.querySelectorAll(".tab-btn").forEach((b,i) => b.classList.toggle("active", i===idx));
+  hideProgressBanner();
+  const st = tabState[idx];
+  if (!st.ready) {
+    if (!st.initPromise) st.initPromise = initTab(idx);
+    else document.getElementById("loading").style.display = "";
+    return;
+  }
+  document.getElementById("loading").style.display = "none";
   rebuildAllData();
   buildSidebar();
   applyFilters();
@@ -801,7 +870,7 @@ function updateRecordCount() {
     document.getElementById('recordCount').insertAdjacentElement('afterend', metaEl);
   }
   const loadedQs = [...activeQuarters].sort().reverse().join(', ') || 'none';
-  metaEl.textContent = `loaded: ${loaded.toLocaleString()} (${loadedQs}) · total available across all quarters: ${totalAvailable.toLocaleString()}`;
+  metaEl.textContent = `loaded: ${loaded.toLocaleString()} (${loadedQs}) · total available in this tab: ${totalAvailable.toLocaleString()}`;
 }
 
 function updateLoadingChips() {
@@ -945,6 +1014,7 @@ function updateFunctionChart(annual) {
 }
 
 function updateLevelChart(annual) {
+  if (TABS[currentTab].hideFields.includes('Job Level')) { if (chartLevel) { chartLevel.destroy(); chartLevel = null; } return; }
   const ctx = document.getElementById('chartLevel');
   const byLevel = {};
   annual.forEach(r => { const l = r['Job Level']; if (!l) return; if (!byLevel[l]) byLevel[l] = []; byLevel[l].push(r['Min Salary']); });
@@ -1010,6 +1080,9 @@ function exportCSV() {
   a.href = url; a.download = 'filtered_export.csv'; a.click();
   URL.revokeObjectURL(url);
 }
+
+// Boot: open on the first tab. Kept last so every top-level let/const above exists.
+switchTab(0);
 </script>
 </body>
 </html>
