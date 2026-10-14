@@ -9,7 +9,9 @@ quarters/ is read or written, so the "All UK Jobs" tab is never affected.
 Same 14-column schema as quarters/, so index.html treats both tabs alike.
 Blank classification fields are written as "Not classified", because the
 portal's applyFilters silently drops rows whose checklist value is blank.
-Job Level is entirely empty in this file and is hidden on this tab.
+Job Level is empty in the source file, so it is filled from a sidecar made by
+TwentySix/Data Scraping/Scraping 2.0/apply_job_level.py (the old pipeline's
+job level model on its own), keyed on the model input: job_title + ' ' + company.
 
 Run from the repo root:
     python3 build_modelled.py --dry-run     # counts only, writes nothing
@@ -32,6 +34,7 @@ from build_scraped4 import (TARGET_COLS, FILL_BLANK, NOT_CLASSIFIED, DESC_MAX,
 REPO = Path(__file__).parent
 OUT_DIR = REPO / "modelled"
 DEFAULT_SOURCE = Path("/Users/millieharrison/df_325k_final_run_10_26.csv")
+DEFAULT_JOB_LEVELS = Path("/Users/millieharrison/df_325k_job_level.csv")
 
 DATASET_LABEL = "October 2026, Modelled Dataset"
 FILE_PREFIX = "modelled_"
@@ -79,10 +82,15 @@ def salary(v):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    ap.add_argument("--job-levels", type=Path, default=DEFAULT_JOB_LEVELS)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
 
     csv.field_size_limit(sys.maxsize)
+    with args.job_levels.open(newline="", encoding="utf-8") as f:
+        job_levels = {r["input"]: r["job_level"] for r in csv.DictReader(f)}
+    print(f"{len(job_levels):,} predicted job levels loaded from {args.job_levels}")
+    level_hits = level_misses = 0
     if not args.dry_run:
         OUT_DIR.mkdir(exist_ok=True)
         for p in OUT_DIR.glob(FILE_PREFIX + "*.csv"):
@@ -150,6 +158,14 @@ def main(argv=None):
             if not q:
                 continue
 
+            level = (r.get("job_level") or "").strip()
+            if not level:
+                level = job_levels.get(f"{r.get('job_title') or ''} {r.get('company') or ''}", "")
+                if level:
+                    level_hits += 1
+                else:
+                    level_misses += 1
+
             out = {
                 "Id": next_id,
                 "Date": date,
@@ -158,7 +174,7 @@ def main(argv=None):
                 "Location": WS.sub(" ", r.get("location") or "").strip(),
                 "Region": (r.get("region") or "").strip(),
                 "Function": (r.get("function") or "").strip(),
-                "Job Level": (r.get("job_level") or "").strip(),
+                "Job Level": level,
                 "Industry": (r.get("industry") or "").strip(),
                 "Salary Period": (r.get("salary_period") or "").strip(),
                 "Min Salary": salary(r.get("min_salary")),
@@ -198,6 +214,12 @@ def main(argv=None):
     print(f'\nBlanks filled with "{NOT_CLASSIFIED}":')
     for fld, n in filled.items():
         print(f"  {fld:15s} {n:7,}  {100*n/max(written,1):5.1f}%")
+
+    print(f"\nJob level from model: {level_hits:,} matched, {level_misses:,} unmatched")
+    if level_misses > 0.01 * max(written, 1):
+        print("ERROR: over 1% of rows have no predicted job level. Rerun apply_job_level.py "
+              "against this source before publishing.")
+        return 1
 
     if args.dry_run:
         print("\nDRY RUN: no files written.")

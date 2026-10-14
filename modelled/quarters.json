@@ -7,7 +7,7 @@
         "modelled_2026Q3_a.csv",
         "modelled_2026Q3_b.csv"
       ],
-      "bytes": 113607429,
+      "bytes": 115709269,
       "dataset": "October 2026, Modelled Dataset"
     },
     {
@@ -16,7 +16,7 @@
       "files": [
         "modelled_2026Q2.csv"
       ],
-      "bytes": 24862468,
+      "bytes": 25453473,
       "dataset": "October 2026, Modelled Dataset"
     },
     {
@@ -25,7 +25,7 @@
       "files": [
         "modelled_2026Q1.csv"
       ],
-      "bytes": 75521,
+      "bytes": 76722,
       "dataset": "October 2026, Modelled Dataset"
     },
     {
@@ -34,7 +34,7 @@
       "files": [
         "modelled_2025Q4.csv"
       ],
-      "bytes": 2041,
+      "bytes": 2090,
       "dataset": "October 2026, Modelled Dataset"
     }
   ]

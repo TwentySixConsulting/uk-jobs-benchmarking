@@ -153,7 +153,7 @@ function escHtml(str) { if (!str) return ""; return String(str).replace(/&/g,"&a
 // the usual globals. The modelled dataset loads in full on open; All UK Jobs
 // keeps its quarter-at-a-time behaviour and is only fetched when first clicked.
 const TABS = [
-  { label: "October 2026, Modelled Dataset", dir: "modelled/", loadAll: true,  hideFields: ["Job Level"] },
+  { label: "October 2026, Modelled Dataset", dir: "modelled/", loadAll: true,  hideFields: [] },
   { label: "All UK Jobs",                    dir: "quarters/", loadAll: false, hideFields: [] },
 ];
 const tabState = TABS.map(() => null);
@@ -193,7 +193,7 @@ function newFilters() {
 let filters = newFilters();
 let hiddenIds = new Set();
 
-const JOB_LEVEL_ORDER = ["Support","Senior Support","Apprentices","Officer/Team Member","Team Leader/Supervisor or Senior Advisor/Officer","Manager","Senior Manager","Head of Function","Director","Chief Executive"];
+const JOB_LEVEL_ORDER = ["Entry Level","Support","Senior Support","Apprentices","Officer/Team Member","Team Leader/Supervisor or Senior Advisor/Officer","Manager","Senior Manager","Head of Function","Director","Chief Executive"];
 const SALARY_PERIOD_ORDER = ["year","month","week","day","hour"];
 const STATS_PERIODS = new Set(["year","day","hour"]);
 
