@@ -16,6 +16,11 @@ job level model on its own), keyed on the model input: job_title + ' ' + company
 Run from the repo root:
     python3 build_modelled.py --dry-run     # counts only, writes nothing
     python3 build_modelled.py
+
+Each monthly modelled export gets its own folder and tab, e.g. November:
+    python3 build_modelled.py --source ~/Downloads/df_all_with_benefits_nov.csv \
+        --job-levels ~/df_nov_job_level.csv --out-dir modelled_nov \
+        --prefix modelled_nov_ --label "November 2026, Modelled Dataset"
 """
 
 import argparse
@@ -80,11 +85,18 @@ def salary(v):
 
 
 def main(argv=None):
+    global OUT_DIR, DATASET_LABEL, FILE_PREFIX
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     ap.add_argument("--job-levels", type=Path, default=DEFAULT_JOB_LEVELS)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--out-dir", type=Path, default=OUT_DIR,
+                    help="e.g. modelled_nov for the November tab")
+    ap.add_argument("--label", default=DATASET_LABEL,
+                    help='Dataset label, e.g. "November 2026, Modelled Dataset"')
+    ap.add_argument("--prefix", default=FILE_PREFIX, help="shard file prefix")
     args = ap.parse_args(argv)
+    OUT_DIR, DATASET_LABEL, FILE_PREFIX = args.out_dir, args.label, args.prefix
 
     csv.field_size_limit(sys.maxsize)
     with args.job_levels.open(newline="", encoding="utf-8") as f:
@@ -234,7 +246,7 @@ def main(argv=None):
     } for q in sorted(counts, reverse=True)]
     (OUT_DIR / "quarters.json").write_text(
         json.dumps({"quarters": entries}, indent=2), encoding="utf-8")
-    print(f"\nmodelled/quarters.json written: {len(entries)} quarters, {written:,} rows.")
+    print(f"\n{OUT_DIR.name}/quarters.json written: {len(entries)} quarters, {written:,} rows.")
     return 0
 
 

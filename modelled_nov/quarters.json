@@ -1,0 +1,31 @@
+{
+  "quarters": [
+    {
+      "id": "2026Q4",
+      "rows": 84538,
+      "files": [
+        "modelled_nov_2026Q4.csv"
+      ],
+      "bytes": 36092658,
+      "dataset": "November 2026, Modelled Dataset"
+    },
+    {
+      "id": "2026Q3",
+      "rows": 16965,
+      "files": [
+        "modelled_nov_2026Q3.csv"
+      ],
+      "bytes": 7345788,
+      "dataset": "November 2026, Modelled Dataset"
+    },
+    {
+      "id": "2026Q2",
+      "rows": 358,
+      "files": [
+        "modelled_nov_2026Q2.csv"
+      ],
+      "bytes": 158971,
+      "dataset": "November 2026, Modelled Dataset"
+    }
+  ]
+}

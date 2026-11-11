@@ -116,8 +116,9 @@ tr.row-hidden td.action-cell .hide-btn { background: var(--accent-light); color:
   <span class="record-count" id="recordCount">0 records</span>
 </div>
 <div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab(0)">October 2026, Modelled Dataset</button>
-  <button class="tab-btn" onclick="switchTab(1)">All UK Jobs</button>
+  <button class="tab-btn active" onclick="switchTab(0)">November 2026, Modelled Dataset</button>
+  <button class="tab-btn" onclick="switchTab(1)">October 2026, Modelled Dataset</button>
+  <button class="tab-btn" onclick="switchTab(2)">All UK Jobs</button>
 </div>
 <div class="chips-bar" id="chipsBar"></div>
 <div class="main-layout">
@@ -153,7 +154,8 @@ function escHtml(str) { if (!str) return ""; return String(str).replace(/&/g,"&a
 // the usual globals. The modelled dataset loads in full on open; All UK Jobs
 // keeps its quarter-at-a-time behaviour and is only fetched when first clicked.
 const TABS = [
-  { label: "October 2026, Modelled Dataset", dir: "modelled/", loadAll: true,  hideFields: [] },
+  { label: "November 2026, Modelled Dataset", dir: "modelled_nov/", loadAll: true,  hideFields: [] },
+  { label: "October 2026, Modelled Dataset", dir: "modelled/",     loadAll: true,  hideFields: [] },
   { label: "All UK Jobs",                    dir: "quarters/", loadAll: false, hideFields: [] },
 ];
 const tabState = TABS.map(() => null);
