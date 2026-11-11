@@ -15,7 +15,8 @@ Steps:
   2. Stage it OUTSIDE the repo with build_modelled.py:
        python3 build_modelled.py --source <export.csv> --job-levels ~/df_<mon>_job_level.csv \\
            --out-dir /tmp/staged_<mon> --prefix staged_
-  3. Merge (dry run first):
+  3. Merge (dry run first). This also updates the Zigbert builder's adverts
+     database (see builder_sync.py); --no-builder skips that:
        python3 add_modelled.py --staged /tmp/staged_<mon> --dry-run
        python3 add_modelled.py --staged /tmp/staged_<mon>
 
@@ -90,6 +91,8 @@ def main(argv=None):
     ap.add_argument("--staged", type=Path, required=True,
                     help="directory written by build_modelled.py --out-dir")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-builder", action="store_true",
+                    help="do not update the Zigbert builder's adverts database afterwards")
     args = ap.parse_args(argv)
     csv.field_size_limit(sys.maxsize)
 
@@ -148,6 +151,9 @@ def main(argv=None):
     (OUT_DIR / "quarters.json").write_text(
         json.dumps({"quarters": entries}, indent=2), encoding="utf-8")
     print(f"\nmodelled/quarters.json written: {len(entries)} quarters, {total:,} rows.")
+    if not args.no_builder:
+        from builder_sync import sync
+        sync("modelled")
     return 0
 
 

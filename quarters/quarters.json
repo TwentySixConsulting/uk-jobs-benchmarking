@@ -86,24 +86,35 @@
       "dataset": "Main scrape"
     },
     {
+      "id": "Scraped4:2026Q4",
+      "quarter": "2026Q4",
+      "dataset": "Scraped4",
+      "rows": 178131,
+      "files": [
+        "scraped4_2026Q4.csv"
+      ],
+      "bytes": 72045004
+    },
+    {
       "id": "Scraped4:2026Q3",
       "quarter": "2026Q3",
       "dataset": "Scraped4",
-      "rows": 184937,
+      "rows": 363498,
       "files": [
-        "scraped4_2026Q3.csv"
+        "scraped4_2026Q3.csv",
+        "scraped4_2026Q3_b.csv"
       ],
-      "bytes": 77453317
+      "bytes": 151240937
     },
     {
       "id": "Scraped4:2026Q2",
       "quarter": "2026Q2",
       "dataset": "Scraped4",
-      "rows": 83873,
+      "rows": 83252,
       "files": [
         "scraped4_2026Q2.csv"
       ],
-      "bytes": 35415881
+      "bytes": 35156680
     }
   ]
 }

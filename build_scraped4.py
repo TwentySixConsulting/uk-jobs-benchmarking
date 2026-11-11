@@ -15,6 +15,10 @@ non-blank values only, so a genuinely blank cell makes the whole row invisible.
 Run from the repo root:
     python3 build_scraped4.py --dry-run     # counts only, writes nothing
     python3 build_scraped4.py
+
+A refresh never loses published rows: any Scraped4 row already in the portal that
+Supabase no longer has (same title, employer and pay) is kept. Afterwards the
+builder's adverts database is updated too (builder_sync.py; --no-builder skips).
 """
 
 import argparse
@@ -177,6 +181,8 @@ def fetch_page(url, key, after):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-builder", action="store_true",
+                    help="do not update the Zigbert builder's adverts database afterwards")
     ap.add_argument("--limit", type=int, default=0,
                     help="stop after N rows (for testing)")
     args = ap.parse_args(argv)
@@ -197,6 +203,27 @@ def main(argv=None):
                     pass
     print(f"Highest Id already published: {max_id:,}")
     next_id = max_id + 1
+
+    # Scraped4 rows published before this refresh. Supabase updates or deletes
+    # rows over time; a published row that is no longer there is kept (appended
+    # back after the fetch), so a refresh never loses adverts. Read now, because
+    # the fetch below overwrites these files.
+    previous = []
+    if not args.dry_run:
+        try:
+            old_index = json.loads((OUT_DIR / "quarters.json").read_text())
+        except (OSError, ValueError):
+            old_index = {"quarters": []}
+        for e in old_index.get("quarters", []):
+            if e.get("dataset") != DATASET_LABEL:
+                continue
+            q = e.get("quarter") or e["id"].split(":")[-1]
+            for name in e.get("files", []):
+                path = OUT_DIR / name
+                if path.exists():
+                    with path.open(newline="", encoding="utf-8", errors="replace") as f:
+                        previous.extend((q, r) for r in csv.DictReader(f))
+        print(f"{len(previous):,} Scraped4 rows published before this refresh")
 
     writers, handles, counts, files_by_q = {}, {}, {}, {}
     filled = {f: 0 for f in FILL_BLANK}
@@ -289,7 +316,38 @@ def main(argv=None):
     for h in handles.values():
         h.close()
 
+    # Keep previously published rows that the fetch no longer has. Matched on
+    # title + employer + pay, not date: a re-scraped advert comes back with a
+    # later date, and keeping the old copy too would count it twice.
+    kept = 0
+    if previous:
+        keep_key = lambda r: tuple((r.get(k) or "").strip() for k in ("Job Title", "Company", "Min Salary", "Max Salary"))
+        now = set()
+        for names in files_by_q.values():
+            for n in names:
+                with (OUT_DIR / n).open(newline="", encoding="utf-8") as f:
+                    now.update(keep_key(r) for r in csv.DictReader(f))
+        gone = {}
+        for q, r in previous:
+            if keep_key(r) not in now:
+                gone.setdefault(q, []).append(r)
+        for q, rows_q in gone.items():
+            if q not in files_by_q:
+                files_by_q[q] = [f"scraped4_{q}.csv"]
+                with (OUT_DIR / files_by_q[q][0]).open("w", encoding="utf-8", newline="") as fh:
+                    csv.DictWriter(fh, fieldnames=TARGET_COLS).writeheader()
+            with (OUT_DIR / files_by_q[q][-1]).open("a", encoding="utf-8", newline="") as fh:
+                w = csv.DictWriter(fh, fieldnames=TARGET_COLS, extrasaction="ignore")
+                for r in rows_q:
+                    r["Id"] = next_id
+                    next_id += 1
+                    w.writerow(r)
+            counts[q] = counts.get(q, 0) + len(rows_q)
+            kept += len(rows_q)
+
     print(f"\nFetched {total:,} rows in {time.time() - t0:.0f}s")
+    if previous:
+        print(f"Kept {kept:,} previously published rows no longer in Supabase")
     print("\nRows per quarter:")
     for q in sorted(counts):
         names = files_by_q.get(q, [])
@@ -342,6 +400,9 @@ def main(argv=None):
 
     grand = sum(e["rows"] for e in entries)
     print(f"\nquarters.json updated: {len(entries)} entries, {grand:,} rows total.")
+    if not args.no_builder:
+        from builder_sync import sync
+        sync("scraped4")
     return 0
 
 

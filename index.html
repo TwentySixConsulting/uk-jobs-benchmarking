@@ -309,6 +309,7 @@ function loadQuarter(qid, st) {
       download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
       complete: results => {
         results.data.filter(r => r["Id"] != null).forEach(r => {
+          r._uid = dir + r["Id"];   // Ids repeat across datasets; hide by folder + Id
           r._titleLower = (r["Job Title"]||"").toString().toLowerCase();
           r._companyLower = (r["Company"]||"").toString().toLowerCase();
           r._locationLower = (r["Location"]||"").toString().toLowerCase();
@@ -733,7 +734,7 @@ function classifyRows(rows) {
     else pay = min > 0 ? min : 0;
     const sp = r['Salary Period'];
     let ex = '';
-    if (hiddenIds.has(r['Id'])) ex = EXCL.hidden;
+    if (hiddenIds.has(r._uid)) ex = EXCL.hidden;
     else if (!pay) ex = EXCL.noPay;
     else if (!STATS_PERIODS.has(sp)) ex = EXCL.period;
     else if (houseMethod) {
@@ -1041,14 +1042,14 @@ function renderTable() {
     const fragment = document.createDocumentFragment();
     pageData.forEach(row => {
       const tr = document.createElement('tr');
-      const isHidden = hiddenIds.has(row['Id']);
+      const isHidden = hiddenIds.has(row._uid);
       if (isHidden) tr.className = 'row-hidden';
       const tdAct = document.createElement('td');
       tdAct.className = 'action-cell';
       const hideBtn = document.createElement('button');
       hideBtn.className = 'hide-btn';
       hideBtn.textContent = isHidden ? 'Show' : 'Hide';
-      hideBtn.onclick = () => toggleHidden(row['Id']);
+      hideBtn.onclick = () => toggleHidden(row._uid);
       tdAct.appendChild(hideBtn);
       tr.appendChild(tdAct);
       TABLE_COLUMNS.forEach(col => {
@@ -1102,7 +1103,7 @@ function updateRecordCount() {
   const filtered = filteredData.length;
   const loaded = allData.length;
   const totalAvailable = quartersIndex.reduce((acc, q) => acc + (q.rows || 0), 0);
-  const hiddenInView = filteredData.reduce((acc, r) => acc + (hiddenIds.has(r['Id']) ? 1 : 0), 0);
+  const hiddenInView = filteredData.reduce((acc, r) => acc + (hiddenIds.has(r._uid) ? 1 : 0), 0);
 
   let txt = filtered.toLocaleString();
   if (filtered !== loaded) txt += ' of ' + loaded.toLocaleString();
@@ -1423,7 +1424,7 @@ function stateToHash() {
   if (filters.dateFrom) p.set('from', filters.dateFrom);
   if (filters.dateTo) p.set('to', filters.dateTo);
   if (!houseMethod) p.set('hm', '0');
-  if (hiddenIds.size) p.set('hide', [...hiddenIds].join(','));
+  if (hiddenIds.size) p.set('hide', [...hiddenIds].join(','));  // folder/Id keys
   return '#' + p.toString();
 }
 
@@ -1442,7 +1443,7 @@ function parseHash() {
   return { tab, qs: (p.get('qs') || '').split(',').filter(Boolean), q: p.get('q') || '', desc: p.get('desc') === '1',
     ex: p.getAll('ex'), co: p.get('co') || '', loc: p.get('loc') || '', checks,
     from: p.get('from') || '', to: p.get('to') || '', hm: p.get('hm') !== '0',
-    hide: (p.get('hide') || '').split(',').filter(Boolean).map(Number) };
+    hide: (p.get('hide') || '').split(',').filter(Boolean) };
 }
 
 function applyPendingState() {
