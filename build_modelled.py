@@ -17,10 +17,9 @@ Run from the repo root:
     python3 build_modelled.py --dry-run     # counts only, writes nothing
     python3 build_modelled.py
 
-Each monthly modelled export gets its own folder and tab, e.g. November:
-    python3 build_modelled.py --source ~/Downloads/df_all_with_benefits_nov.csv \
-        --job-levels ~/df_nov_job_level.csv --out-dir modelled_nov \
-        --prefix modelled_nov_ --label "November 2026, Modelled Dataset"
+NOW: modelled/ holds every export merged into one tab, so this script must
+not write there (it refuses). Stage a new export to another --out-dir and
+merge it with add_modelled.py, whose docstring has the full steps.
 """
 
 import argparse
@@ -41,7 +40,7 @@ OUT_DIR = REPO / "modelled"
 DEFAULT_SOURCE = Path("/Users/millieharrison/df_325k_final_run_10_26.csv")
 DEFAULT_JOB_LEVELS = Path("/Users/millieharrison/df_325k_job_level.csv")
 
-DATASET_LABEL = "October 2026, Modelled Dataset"
+DATASET_LABEL = "Modelled Dataset"
 FILE_PREFIX = "modelled_"
 
 WS = re.compile(r"\s+")
@@ -97,6 +96,11 @@ def main(argv=None):
     ap.add_argument("--prefix", default=FILE_PREFIX, help="shard file prefix")
     args = ap.parse_args(argv)
     OUT_DIR, DATASET_LABEL, FILE_PREFIX = args.out_dir, args.label, args.prefix
+    if args.out_dir.resolve() == (REPO / "modelled").resolve() and not args.dry_run:
+        # modelled/ now holds every export merged; its sources no longer all
+        # exist, so rebuilding it from one file would lose data.
+        sys.exit("Refusing to overwrite modelled/. Stage to another --out-dir "
+                 "and merge with add_modelled.py (see its docstring).")
 
     csv.field_size_limit(sys.maxsize)
     with args.job_levels.open(newline="", encoding="utf-8") as f:
