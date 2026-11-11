@@ -309,7 +309,6 @@ function loadQuarter(qid, st) {
       download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
       complete: results => {
         results.data.filter(r => r["Id"] != null).forEach(r => {
-          r._uid = dir + r["Id"];   // Ids repeat across datasets; hide by folder + Id
           r._titleLower = (r["Job Title"]||"").toString().toLowerCase();
           r._companyLower = (r["Company"]||"").toString().toLowerCase();
           r._locationLower = (r["Location"]||"").toString().toLowerCase();
@@ -320,6 +319,8 @@ function loadQuarter(qid, st) {
             const f = FILLED_FIELDS[i], v = r[f];
             if (v == null || v === "" || v === "nan") r[f] = BLANK_FILL;
           }
+          r._dkey = dupKey(r);
+          r._uid = advertKey(r);
           fileRows.push(r);
           collected.push(r);
         });
@@ -338,6 +339,26 @@ function loadQuarter(qid, st) {
 }
 
 const FILE_CACHE = new Map();   // dir + file -> parsed rows, shared by tabs
+
+// "The same advert" = same title, employer, pay and period: the house method's
+// duplicate rule. dupKey() is used for de-duplicating and advertKey() (a short
+// hash of it) for hiding and shared links, so hiding an advert hides every copy
+// and the figures drop by one. Not the Id: Ids repeat across datasets and
+// Scraped4 is renumbered on every refresh. FNV-1a style, ~52 bits.
+function dupKey(r) {
+  return r._titleLower.trim() + '|' + r._companyLower.trim() + '|' + (Number(r['Min Salary']) || 0) + '|' +
+    (Number(r['Max Salary']) || 0) + '|' + r['Salary Period'];
+}
+function advertKey(r) {
+  const str = r._dkey;
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x5bd1e995) >>> 0;
+  }
+  return (h1.toString(36) + (h2 & 0xfffff).toString(36));
+}
 
 // Lower-cased on demand: keeping a lower-case copy of every description cost
 // about a third of the page's memory, only to serve "Include search in description".
@@ -742,8 +763,7 @@ function classifyRows(rows) {
       if (pay < b[0] || pay > b[1]) ex = EXCL.bounds;
       else if (sp === 'year' && pay < NLW_ANNUAL) ex = EXCL.nlw;
       else {
-        const k = r._titleLower.trim() + '|' + r._companyLower.trim() + '|' + min + '|' + max + '|' + sp;
-        if (seen.has(k)) ex = EXCL.dup; else seen.add(k);
+        if (seen.has(r._dkey)) ex = EXCL.dup; else seen.add(r._dkey);
       }
     }
     r._pay = pay;
@@ -1424,7 +1444,7 @@ function stateToHash() {
   if (filters.dateFrom) p.set('from', filters.dateFrom);
   if (filters.dateTo) p.set('to', filters.dateTo);
   if (!houseMethod) p.set('hm', '0');
-  if (hiddenIds.size) p.set('hide', [...hiddenIds].join(','));  // folder/Id keys
+  if (hiddenIds.size) p.set('hide', [...hiddenIds].join(','));  // advertKey() codes
   return '#' + p.toString();
 }
 
