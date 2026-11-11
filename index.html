@@ -6,6 +6,7 @@
 <title>UK Jobs Benchmarking</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -107,6 +108,24 @@ tr.row-hidden td.action-cell .hide-btn { background: var(--accent-light); color:
 .except-row input:focus { border-color: var(--accent); }
 .except-remove { padding: 0 8px; background: var(--accent-light); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; color: var(--text-muted); font-size: 14px; line-height: 1; }
 .except-remove:hover { background: var(--border); color: var(--text); }
+.method-bar { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; margin-bottom: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 12px; color: var(--text-muted); }
+.method-bar .method-toggle { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text); font-size: 13px; cursor: pointer; user-select: none; }
+.method-bar .method-summary { flex: 1; min-width: 260px; }
+.method-bar details { font-size: 12px; }
+.method-bar details summary { cursor: pointer; color: var(--accent); }
+.method-bar details ul { margin: 6px 0 0 18px; }
+.link-btn { background: none; border: 1px solid var(--border); color: var(--accent); padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.link-btn:hover { background: var(--accent-light); }
+.pool-line { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.pool-warn { margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: #fff4e5; border: 1px solid #f6c37a; color: #8a4b00; font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.employers-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; margin-bottom: 20px; font-size: 12px; }
+.employers-card summary { cursor: pointer; font-weight: 600; color: var(--text); font-size: 13px; }
+.employers-card table { min-width: 0; width: 100%; margin-top: 8px; }
+.employers-card td { padding: 3px 6px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.employers-card td.num { text-align: right; color: var(--text-muted); white-space: nowrap; }
+td.excl-cell { color: #b45309; }
+td.incl-cell { color: #15803d; font-weight: 600; }
+.toolbar-btns { display: flex; gap: 8px; }
 </style>
 </head>
 <body>
@@ -123,7 +142,9 @@ tr.row-hidden td.action-cell .hide-btn { background: var(--accent-light); color:
 <div class="main-layout">
   <div class="sidebar" id="sidebar"></div>
   <div class="content" id="content">
+    <div class="method-bar" id="methodBar"></div>
     <div class="stats-grid" id="statsGrid"></div>
+    <div class="employers-card" id="employersCard"></div>
     <div class="charts-section">
       <h2>Salary Trends &amp; Breakdown</h2>
       <div class="charts-row full">
@@ -135,12 +156,16 @@ tr.row-hidden td.action-cell .hide-btn { background: var(--accent-light); color:
       </div>
       <div class="charts-row">
         <div class="chart-card"><h3>Top Regions</h3><p class="chart-subtitle">Record count and median annual salary</p><div class="chart-container medium"><canvas id="chartRegion"></canvas></div></div>
-        <div class="chart-card"><h3>Annual Salary Distribution</h3><p class="chart-subtitle">Histogram of annual Min Salary</p><div class="chart-container medium"><canvas id="chartDistribution"></canvas></div></div>
+        <div class="chart-card"><h3>Annual Salary Distribution</h3><p class="chart-subtitle" id="distSubtitle">Histogram of annual pay</p><div class="chart-container medium"><canvas id="chartDistribution"></canvas></div></div>
       </div>
     </div>
     <div class="table-toolbar">
       <span id="tableInfo" style="color:var(--text-muted);font-size:13px;"></span>
-      <button class="export-btn" onclick="exportCSV()">Download CSV</button>
+      <div class="toolbar-btns">
+        <button class="link-btn" onclick="copyLink()" id="copyLinkBtn" title="Copy a link that reopens this exact search">Copy link to this search</button>
+        <button class="export-btn" onclick="exportCSV()">Download CSV</button>
+        <button class="export-btn" onclick="exportExcel()" title="Adverts plus a sheet with the search, exclusions and figures, for Approval 1">Download Excel with search summary</button>
+      </div>
     </div>
     <div class="table-container"><div class="table-scroll"><table><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table></div><div class="pagination" id="pagination"></div></div>
   </div>
@@ -154,7 +179,11 @@ function escHtml(str) { if (!str) return ""; return String(str).replace(/&/g,"&a
 // keeps its quarter-at-a-time behaviour and is only fetched when first clicked.
 const TABS = [
   { label: "Modelled Dataset", dir: "modelled/", loadAll: true,  hideFields: [] },
-  { label: "All UK Jobs",                    dir: "quarters/", loadAll: false, hideFields: [] },
+  // extra: further manifests offered in this tab's Dataset filter, loaded only
+  // when ticked. Quarter ids get the prefix so they never clash with the main
+  // scrape's (both have a "2026Q3").
+  { label: "All UK Jobs",                    dir: "quarters/", loadAll: false, hideFields: [],
+    extra: [{ dir: "modelled/", prefix: "Modelled:" }] },
 ];
 const tabState = TABS.map(() => null);
 
@@ -171,12 +200,30 @@ let currentPage = 0;
 let pageSize = 100;
 let sortState = { column: "Date", direction: "desc" };
 
-const ALL_TABLE_COLUMNS = ["Id","Dataset","Date","Job Title","Company","Min Salary","Max Salary","Salary Period","Location","Region","Function","Job Level","Industry","Job Description"];
+const ALL_TABLE_COLUMNS = ["Id","In figures","Dataset","Date","Job Title","Company","Min Salary","Max Salary","Pay used","Salary Period","Location","Region","Function","Job Level","Industry","Job Description"];
 const ALL_CHECKLIST_FIELDS = ["Dataset","Function","Job Level","Industry","Region","Salary Period"];
 // Narrowed per tab by its hideFields (see switchTab).
 let TABLE_COLUMNS = ALL_TABLE_COLUMNS;
 let CHECKLIST_FIELDS = ALL_CHECKLIST_FIELDS;
-const NUMERIC_COLS = new Set(["Id","Min Salary","Max Salary"]);
+const NUMERIC_COLS = new Set(["Id","Min Salary","Max Salary","Pay used"]);
+
+// House method (twentysix-method/method/PAY-BENCHMARKING.md, "Advert cleaning"):
+// pay is the midpoint of the advert's range; annual figures outside £12k-£250k
+// are dropped, as are full-time annual figures below the National Living Wage
+// (part-time adverts quoting pro rata pay); duplicates on title, employer, pay
+// and period are counted once. Hourly and daily bounds are the same £12k-£250k
+// at 37.5 hours a week. Off = the raw view: Min Salary, nothing dropped.
+// Update NLW_HOURLY each April.
+const NLW_HOURLY = 12.71, NLW_FT_HOURS = 35;
+const NLW_ANNUAL = Math.round(NLW_HOURLY * NLW_FT_HOURS * 52);
+const PAY_BOUNDS = { year: [12000, 250000], day: [12000 / 260, 250000 / 260], hour: [12000 / 1950, 250000 / 1950] };
+const MIN_POOL = 8;             // a pool is not relied on with fewer adverts...
+const MAX_EMPLOYER_SHARE = 0.5; // ...or with one employer over half of it
+const EXCL = { hidden: "Hidden by you", noPay: "No pay", period: "Not annual, daily or hourly",
+  bounds: "Outside £12k to £250k", nlw: "Below NLW full time", dup: "Duplicate" };
+let houseMethod = true;
+let exclCounts = {};
+let restoring = false;
 
 // Rows are dropped by applyFilters when a checklist field is blank, because the
 // filter set is built from non-blank values only. Older files have no Dataset
@@ -188,7 +235,7 @@ const FILLED_FIELDS = ["Function","Job Level","Industry","Region","Salary Period
 const TEXT_FIELDS = ["Job Title","Company","Location"];
 
 function newFilters() {
-  return { "Job Title":"", "Company":"", "Location":"", "Dataset":new Set(), "Function":new Set(), "Job Level":new Set(), "Industry":new Set(), "Region":new Set(), "Salary Period":new Set(), dateFrom:"", dateTo:"", titleIncludeDesc:false, titleExcept:[] };
+  return { "Job Title":"", "Company":"", "Location":"", "Dataset":new Set(), "Function":new Set(), "Job Level":new Set(), "Industry":new Set(), "Region":new Set(), "Salary Period":new Set(), dateFrom:"", dateTo:"", titleIncludeDesc:false, titleExcept:[], _seen:{} };
 }
 let filters = newFilters();
 let hiddenIds = new Set();
@@ -206,12 +253,22 @@ function initTab(idx) {
   overlay.style.display = "";
   overlay.innerHTML = "<div class='spinner'></div><div id='loadingText'>Loading " + escHtml(tab.label) + "…</div>";
   const say = t => { const el = document.getElementById("loadingText"); if (el) el.textContent = t; };
+  const extras = (tab.extra || []).map(x => fetch(x.dir + "quarters.json")
+    .then(r => r.json())
+    .then(j => (j.quarters || []).map(q => Object.assign({}, q, { id: x.prefix + q.id, quarter: q.quarter || q.id, dir: x.dir })))
+    .catch(() => []));
   return fetch(tab.dir + "quarters.json")
     .then(r => r.json())
-    .then(idx2 => {
-      st.quartersIndex = idx2.quarters || [];
+    .then(idx2 => Promise.all(extras).then(more => (idx2.quarters || []).concat(...more)))
+    .then(list => {
+      st.quartersIndex = list;
       if (st.quartersIndex.length === 0) throw new Error("quarters.json has no quarters");
-      const toLoad = tab.loadAll ? st.quartersIndex : [st.quartersIndex[0]];
+      let toLoad = tab.loadAll ? st.quartersIndex : [st.quartersIndex[0]];
+      // A shared link names the quarters it was made with.
+      if (pendingState && pendingState.tab === idx && pendingState.qs && pendingState.qs.length) {
+        const want = st.quartersIndex.filter(q => pendingState.qs.includes(q.id));
+        if (want.length) toLoad = want;
+      }
       toLoad.forEach(q => st.activeQuarters.add(q.id));
       if (idx === currentTab) quartersIndex = st.quartersIndex;
       return toLoad.reduce((p, q, k) => p.then(() => {
@@ -233,11 +290,11 @@ function initTab(idx) {
 // after the user has switched tabs still lands in the right tab.
 function loadQuarter(qid, st) {
   st = st || tabState[currentTab];
-  const dir = TABS[st.tab].dir;
   const loadedQuarters = st.loadedQuarters, loadingQuarters = st.loadingQuarters;
   if (loadedQuarters.has(qid)) return Promise.resolve();
   const meta = st.quartersIndex.find(q => q.id === qid);
   if (!meta) return Promise.reject(new Error("Unknown quarter " + qid));
+  const dir = meta.dir || TABS[st.tab].dir;
   loadingQuarters.add(qid);
   updateLoadingChips();
   // A quarter can be split across multiple shard files; load them in sequence
@@ -245,6 +302,9 @@ function loadQuarter(qid, st) {
   const files = meta.files || [];
   const collected = [];
   const fetchOne = (fileName) => new Promise((resolve, reject) => {
+    const cached = FILE_CACHE.get(dir + fileName);
+    if (cached) { cached.forEach(r => collected.push(r)); resolve(); return; }
+    const fileRows = [];
     Papa.parse(dir + fileName, {
       download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
       complete: results => {
@@ -252,7 +312,6 @@ function loadQuarter(qid, st) {
           r._titleLower = (r["Job Title"]||"").toString().toLowerCase();
           r._companyLower = (r["Company"]||"").toString().toLowerCase();
           r._locationLower = (r["Location"]||"").toString().toLowerCase();
-          r._descLower = (r["Job Description"]||"").toString().toLowerCase();
           if (!r["Job Description"] || r["Job Description"] === "nan") r["Job Description"] = "";
           const ds = r["Dataset"];
           r["Dataset"] = (ds == null || ds === "" || ds === "nan") ? MAIN_DATASET : ds;
@@ -260,9 +319,10 @@ function loadQuarter(qid, st) {
             const f = FILLED_FIELDS[i], v = r[f];
             if (v == null || v === "" || v === "nan") r[f] = BLANK_FILL;
           }
-          r._quarter = qid;
+          fileRows.push(r);
           collected.push(r);
         });
+        FILE_CACHE.set(dir + fileName, fileRows);
         resolve();
       },
       error: err => reject(err)
@@ -274,6 +334,24 @@ function loadQuarter(qid, st) {
       loadingQuarters.delete(qid);
       updateLoadingChips();
     });
+}
+
+const FILE_CACHE = new Map();   // dir + file -> parsed rows, shared by tabs
+
+// Lower-cased on demand: keeping a lower-case copy of every description cost
+// about a third of the page's memory, only to serve "Include search in description".
+function descHas(row, q) {
+  const d = row["Job Description"];
+  return !!d && String(d).toLowerCase().includes(q);
+}
+
+// Rows the browser can safely hold. Measured at about 1 KB a row in Chrome,
+// whose heap limit can be as low as ~2.2 GB; past this the tab can crash.
+const ROW_BUDGET = 1300000;
+function rowsInMemory() { let n = 0; FILE_CACHE.forEach(r => n += r.length); return n; }
+function rowsToFetch(qs) {
+  // Rows not already in the shared cache (a quarter loaded in the other tab is free).
+  return qs.reduce((a, q) => a + ((q.files || []).every(f => FILE_CACHE.has((q.dir || TABS[currentTab].dir) + f)) ? 0 : (q.rows || 0)), 0);
 }
 
 function rebuildAllData() {
@@ -306,6 +384,8 @@ function toggleQuarter(qid, on) {
 function selectAllQuarters() {
   const toLoad = quartersIndex.filter(q => !activeQuarters.has(q.id) || !loadedQuarters.has(q.id));
   if (toLoad.length === 0) return;
+  const after = rowsInMemory() + rowsToFetch(toLoad);
+  if (after > ROW_BUDGET && !confirm(`That would hold ${after.toLocaleString()} rows in this browser tab. Above about ${ROW_BUDGET.toLocaleString()} the tab can run out of memory and crash. Load them anyway?`)) return;
   quartersIndex.forEach(q => activeQuarters.add(q.id));
   buildSidebar();
   showProgressBanner();
@@ -470,6 +550,7 @@ function switchTab(idx, force) {
   document.getElementById("loading").style.display = "none";
   rebuildAllData();
   buildSidebar();
+  if (pendingState && pendingState.tab === idx) { applyPendingState(); return; }
   applyFilters();
 }
 
@@ -570,11 +651,13 @@ function buildSidebar() {
     // Preserve user selection across rebuilds. First time: select all. After
     // that: keep whatever the user has, and auto-include any values that just
     // appeared (so newly-loaded quarters don't surprise-filter their own data).
-    if (!(filters[field] instanceof Set)) {
-      filters[field] = new Set(values);
-    } else {
-      values.forEach(v => { if (!filters[field].has(v)) filters[field].add(v); });
-    }
+    // Only values never seen before are auto-ticked. Re-adding every missing
+    // value (as this used to) re-ticked whatever the user had unticked each time
+    // the sidebar was rebuilt, e.g. on switching tabs and back.
+    if (!(filters[field] instanceof Set)) filters[field] = new Set();
+    if (!filters._seen) filters._seen = {};
+    const seen = filters._seen[field] || (filters._seen[field] = new Set());
+    values.forEach(v => { if (!seen.has(v)) { seen.add(v); filters[field].add(v); } });
     const isOpen = field !== "Industry" ? "open" : "";
     html += "<details " + isOpen + "><summary>" + field + "</summary><span class=\"toggle-all\" onclick=\"toggleAll('" + field + "')\">Select All / Clear</span><div class=\"checklist\" id=\"checklist_" + field + "\">";
     values.forEach(val => {
@@ -584,7 +667,8 @@ function buildSidebar() {
     });
     html += "</div></details>";
   });
-  html += "<details open><summary>Date Range</summary><div class=\"date-range\"><input type=\"date\" id=\"filter_dateFrom\" onchange=\"filters.dateFrom=this.value;applyFilters();\"><input type=\"date\" id=\"filter_dateTo\" onchange=\"filters.dateTo=this.value;applyFilters();\"></div></details>";
+  html += "<details open><summary>Date Range</summary><div class=\"date-range\"><input type=\"date\" id=\"filter_dateFrom\" value=\"" + escHtml(filters.dateFrom || "") + "\" onchange=\"filters.dateFrom=this.value;applyFilters();\"><input type=\"date\" id=\"filter_dateTo\" value=\"" + escHtml(filters.dateTo || "") + "\" onchange=\"filters.dateTo=this.value;applyFilters();\"></div></details>";
+  html += "<button class=\"reset-btn\" onclick=\"widenThinMarket()\" title=\"For niche roles: last two years, every region and every dataset\">Thin market? Widen to 2 years, all UK, every dataset</button>";
   html += "<button class=\"reset-btn\" onclick=\"resetFilters()\">Reset All Filters</button>";
   sb.innerHTML = html;
   // Restore except inputs from saved state (or start with one empty input)
@@ -592,9 +676,9 @@ function buildSidebar() {
   filters.titleExcept = [];
   if (savedExcepts.length === 0) addTitleExceptInput('');
   else savedExcepts.forEach(v => addTitleExceptInput(v));
-  // Restore Job Title text input value
-  const titleInput = document.getElementById('filter_Job Title');
-  if (titleInput && filters['Job Title']) titleInput.value = filters['Job Title'];
+  // Restore the text boxes (Company and Location used to come back empty after a
+  // rebuild even though their filter was still applied)
+  TEXT_FIELDS.forEach(f => { const el = document.getElementById('filter_' + f); if (el && filters[f]) el.value = filters[f]; });
 }
 
 function addTitleExceptInput(val) {
@@ -632,13 +716,76 @@ function addTitleExceptInput(val) {
 }
 
 function getStatsData() {
-  return filteredData.filter(r => !hiddenIds.has(r['Id']));
+  return filteredData.filter(r => !r._excl);
+}
+
+// Works out, for every matching row, the pay used and whether it counts in the
+// figures. Run after every filter change. Duplicates keep the first copy met,
+// which is the newest quarter's, since quarters are held newest first.
+function classifyRows(rows) {
+  const seen = new Set();
+  exclCounts = {};
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const min = Number(r['Min Salary']) || 0, max = Number(r['Max Salary']) || 0;
+    let pay;
+    if (houseMethod) pay = (min > 0 && max > 0) ? (max >= min ? (min + max) / 2 : min) : (min > 0 ? min : (max > 0 ? max : 0));
+    else pay = min > 0 ? min : 0;
+    const sp = r['Salary Period'];
+    let ex = '';
+    if (hiddenIds.has(r['Id'])) ex = EXCL.hidden;
+    else if (!pay) ex = EXCL.noPay;
+    else if (!STATS_PERIODS.has(sp)) ex = EXCL.period;
+    else if (houseMethod) {
+      const b = PAY_BOUNDS[sp];
+      if (pay < b[0] || pay > b[1]) ex = EXCL.bounds;
+      else if (sp === 'year' && pay < NLW_ANNUAL) ex = EXCL.nlw;
+      else {
+        const k = r._titleLower.trim() + '|' + r._companyLower.trim() + '|' + min + '|' + max + '|' + sp;
+        if (seen.has(k)) ex = EXCL.dup; else seen.add(k);
+      }
+    }
+    r._pay = pay;
+    r._excl = ex;
+    r['Pay used'] = pay ? Math.round(pay * 100) / 100 : '';
+    r['In figures'] = ex || 'Yes';
+    if (ex) exclCounts[ex] = (exclCounts[ex] || 0) + 1;
+  }
+}
+
+function refreshFigures() {
+  classifyRows(filteredData);
+  updateRecordCount(); updateMethodBar(); updateStats(); updateCharts(); renderTable(); updateHash();
 }
 
 function toggleHidden(id) {
   if (hiddenIds.has(id)) hiddenIds.delete(id);
   else hiddenIds.add(id);
-  updateRecordCount(); updateStats(); updateCharts(); renderTable();
+  refreshFigures();
+}
+
+function setHouseMethod(on) {
+  houseMethod = !!on;
+  refreshFigures();
+}
+
+function updateMethodBar() {
+  const el = document.getElementById('methodBar');
+  const used = filteredData.length - Object.values(exclCounts).reduce((a, b) => a + b, 0);
+  const order = [EXCL.dup, EXCL.bounds, EXCL.nlw, EXCL.noPay, EXCL.period, EXCL.hidden];
+  const parts = order.filter(k => exclCounts[k]).map(k => exclCounts[k].toLocaleString() + ' ' + k[0].toLowerCase() + k.slice(1));
+  const basis = houseMethod ? 'pay = midpoint of the advert range' : 'raw view: Min Salary, nothing cleaned or deduplicated';
+  el.innerHTML =
+    `<label class="method-toggle"><input type="checkbox" ${houseMethod ? 'checked' : ''} onchange="setHouseMethod(this.checked)">House method</label>` +
+    `<span class="method-summary"><b>${used.toLocaleString()}</b> of ${filteredData.length.toLocaleString()} matching adverts in the figures · ${basis}` +
+    (parts.length ? ` · left out: ${parts.join(', ')}` : '') + `</span>` +
+    `<details><summary>What the house method does</summary><ul>` +
+    `<li>Pay is the midpoint of the advert's range (the minimum if no maximum).</li>` +
+    `<li>Annual figures outside £12,000 to £250,000 are left out; hourly and daily use the same bounds at 37.5 hours.</li>` +
+    `<li>Annual figures below the National Living Wage full time (£${NLW_HOURLY}/hr × ${NLW_FT_HOURS} hrs = ${gbp(NLW_ANNUAL)}) are left out: these are usually part-time pro rata pay.</li>` +
+    `<li>The same advert (title, employer, pay and period) is counted once, also across datasets.</li>` +
+    `<li>A pool is not relied on with fewer than ${MIN_POOL} adverts or one employer over half of it.</li>` +
+    `<li>The "In figures" column in the table says why any advert was left out.</li></ul></details>`;
 }
 
 function toggleAll(field) {
@@ -695,7 +842,7 @@ function applyFilters() {
   filteredData = allData.filter(row => {
     if (titleQ) {
       const inTitle = row._titleLower.includes(titleQ);
-      const inDesc = includeDesc && row._descLower.includes(titleQ);
+      const inDesc = includeDesc && descHas(row, titleQ);
       if (!inTitle && !inDesc) return false;
     }
     for (let i = 0; i < excepts.length; i++) {
@@ -713,8 +860,10 @@ function applyFilters() {
     if (filters.dateTo && (row['Date'] || '') > filters.dateTo) return false;
     return true;
   });
+  classifyRows(filteredData);
   sortData(); currentPage = 0;
-  updateRecordCount(); updateStats(); updateCharts(); renderTable(); updateChips(); updateFilterCounts();
+  updateRecordCount(); updateMethodBar(); updateStats(); updateCharts(); renderTable(); updateChips(); updateFilterCounts();
+  updateHash();
 }
 
 function sortData() {
@@ -797,28 +946,49 @@ function formatCurrency(val, period) {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: d, minimumFractionDigits: d }).format(val);
 }
 
-function updateStats() {
-  const grid = document.getElementById('statsGrid');
+const PERIOD_LABEL = { year: 'Annual', day: 'Daily', hour: 'Hourly' };
+
+// Figures per pay period over the rows in the figures, with the employer mix
+// used by the pool check. Shared by the stat cards and the Excel summary.
+function periodStats() {
   const groups = {};
   getStatsData().forEach(row => {
-    const sp = row['Salary Period'] || 'unknown';
-    if (!groups[sp]) groups[sp] = [];
-    const val = Number(row['Min Salary']);
-    if (!isNaN(val) && val > 0) groups[sp].push(val);
+    const sp = row['Salary Period'];
+    (groups[sp] = groups[sp] || []).push(row);
   });
-  const sortedPeriods = Object.keys(groups).filter(p => STATS_PERIODS.has(p)).sort((a, b) => {
-    const ia = SALARY_PERIOD_ORDER.indexOf(a), ib = SALARY_PERIOD_ORDER.indexOf(b);
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-  });
-  if (sortedPeriods.length === 0) { grid.innerHTML = '<div class="empty-state">No data matches the current filters.</div>'; return; }
+  return Object.keys(groups).filter(p => STATS_PERIODS.has(p))
+    .sort((a, b) => SALARY_PERIOD_ORDER.indexOf(a) - SALARY_PERIOD_ORDER.indexOf(b))
+    .map(period => {
+      const rows = groups[period];
+      const values = rows.map(r => r._pay);
+      const sorted = [...values].sort((a, b) => a - b);
+      const n = sorted.length;
+      const emp = {};
+      rows.forEach(r => { const c = String(r['Company'] || '').trim() || '(no employer)'; emp[c] = (emp[c] || 0) + 1; });
+      const empList = Object.entries(emp).sort((a, b) => b[1] - a[1]);
+      return { period, label: PERIOD_LABEL[period] || period, n, sorted, values,
+        p5: percentile(sorted, 5), p25: percentile(sorted, 25), p50: percentile(sorted, 50),
+        p75: percentile(sorted, 75), p95: percentile(sorted, 95),
+        mean: values.reduce((a, b) => a + b, 0) / n,
+        employers: empList.length, topEmployer: empList[0][0], topShare: empList[0][1] / n };
+    });
+}
+
+function poolWarnings(st) {
+  const w = [];
+  if (st.n < MIN_POOL) w.push(`Only ${st.n} advert${st.n === 1 ? '' : 's'}: the house method does not rely on a pool under ${MIN_POOL}.`);
+  if (st.n > 1 && st.topShare > MAX_EMPLOYER_SHARE) w.push(`${escHtml(st.topEmployer)} is ${Math.round(st.topShare * 100)}% of this pool: over half from one employer, so not relied on.`);
+  return w;
+}
+
+function updateStats() {
+  const grid = document.getElementById('statsGrid');
+  const stats = periodStats();
+  updateEmployersCard();
+  if (stats.length === 0) { grid.innerHTML = '<div class="empty-state">No adverts in the figures for the current filters.</div>'; return; }
   let html = '';
-  sortedPeriods.forEach(period => {
-    const values = groups[period];
-    const sorted = [...values].sort((a, b) => a - b);
-    const n = sorted.length;
-    const p5 = percentile(sorted, 5), p25 = percentile(sorted, 25), p50 = percentile(sorted, 50);
-    const p75 = percentile(sorted, 75), p95 = percentile(sorted, 95);
-    const mean = values.reduce((a, b) => a + b, 0) / n;
+  stats.forEach(st => {
+    const { period, label, n, sorted, p5, p25, p50, p75, p95, mean } = st;
     const iqr = p75 - p25;
     const wLow = sorted.find(v => v >= Math.max(sorted[0], p25 - 1.5 * iqr)) || sorted[0];
     const wHigh = [...sorted].reverse().find(v => v <= Math.min(sorted[n-1], p75 + 1.5 * iqr)) || sorted[n-1];
@@ -827,11 +997,27 @@ function updateStats() {
     const range = (wHigh - wLow) || 1;
     const x = v => pad + (Math.max(0, Math.min(1, (v - wLow) / range))) * (svgW - 2 * pad);
     const svg = `<svg width="${svgW}" height="${svgH}" style="display:block;"><line x1="${x(wLow)}" y1="${svgH/2}" x2="${x(wHigh)}" y2="${svgH/2}" stroke="#94a3b8" stroke-width="1.5"/><line x1="${x(wLow)}" y1="${svgH/2-8}" x2="${x(wLow)}" y2="${svgH/2+8}" stroke="#94a3b8" stroke-width="1.5"/><line x1="${x(wHigh)}" y1="${svgH/2-8}" x2="${x(wHigh)}" y2="${svgH/2+8}" stroke="#94a3b8" stroke-width="1.5"/><rect x="${x(p25)}" y="${svgH/2-12}" width="${Math.max(2, x(p75)-x(p25))}" height="24" fill="rgba(59,89,152,0.12)" stroke="var(--accent)" stroke-width="1.5" rx="3"/><line x1="${x(p50)}" y1="${svgH/2-12}" x2="${x(p50)}" y2="${svgH/2+12}" stroke="var(--accent)" stroke-width="2.5"/><polygon points="${x(mean)},${svgH/2-5} ${x(mean)+4},${svgH/2} ${x(mean)},${svgH/2+5} ${x(mean)-4},${svgH/2}" fill="#e53e3e"/><text x="${x(wLow)}" y="${svgH-2}" text-anchor="middle" font-size="9" fill="#94a3b8">${formatCurrency(wLow,period)}</text><text x="${x(wHigh)}" y="${svgH-2}" text-anchor="middle" font-size="9" fill="#94a3b8">${formatCurrency(wHigh,period)}</text></svg>`;
-    const label = period==='year'?'Annual':period==='day'?'Daily':period==='hour'?'Hourly':period;
+    const warns = poolWarnings(st);
     const outlierNote = outlierCount > 0 ? `<span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${outlierCount} outlier${outlierCount!==1?'s':''} excluded from chart</span>` : '';
-    html += `<div class="stat-card"><h3>${label} <span class="count">${n.toLocaleString()} records</span></h3><div class="stat-and-chart"><div class="stat-values"><div class="stat-item"><div class="stat-label">P25</div><div class="stat-value">${formatCurrency(p25,period)}</div></div><div class="stat-item"><div class="stat-label">Median</div><div class="stat-value">${formatCurrency(p50,period)}</div></div><div class="stat-item"><div class="stat-label">P75</div><div class="stat-value">${formatCurrency(p75,period)}</div></div><div class="stat-item"><div class="stat-label">Mean</div><div class="stat-value">${formatCurrency(mean,period)}</div></div><div class="stat-item"><div class="stat-label">P5</div><div class="stat-value">${formatCurrency(p5,period)}</div></div><div class="stat-item"><div class="stat-label">P95</div><div class="stat-value">${formatCurrency(p95,period)}</div></div></div><div class="stat-range">${svg}${outlierNote}</div></div></div>`;
+    html += `<div class="stat-card"><h3>${label} <span class="count">${n.toLocaleString()} records</span></h3><div class="stat-and-chart"><div class="stat-values"><div class="stat-item"><div class="stat-label">P25</div><div class="stat-value">${formatCurrency(p25,period)}</div></div><div class="stat-item"><div class="stat-label">Median</div><div class="stat-value">${formatCurrency(p50,period)}</div></div><div class="stat-item"><div class="stat-label">P75</div><div class="stat-value">${formatCurrency(p75,period)}</div></div><div class="stat-item"><div class="stat-label">Mean</div><div class="stat-value">${formatCurrency(mean,period)}</div></div><div class="stat-item"><div class="stat-label">P5</div><div class="stat-value">${formatCurrency(p5,period)}</div></div><div class="stat-item"><div class="stat-label">P95</div><div class="stat-value">${formatCurrency(p95,period)}</div></div></div><div class="stat-range">${svg}${outlierNote}</div></div>` +
+      `<div class="pool-line">${st.employers.toLocaleString()} employer${st.employers === 1 ? '' : 's'} · largest: ${escHtml(st.topEmployer)} (${Math.round(st.topShare * 100)}%)</div>` +
+      (warns.length ? `<div class="pool-warn"><span>⚠ ${warns.join(' ')}</span>` + (st.n < MIN_POOL ? `<button class="link-btn" onclick="widenThinMarket()">Widen to 2 years, all UK, every dataset</button>` : '') + `</div>` : '') +
+      `</div>`;
   });
   grid.innerHTML = html;
+}
+
+function updateEmployersCard() {
+  const el = document.getElementById('employersCard');
+  const rows = getStatsData();
+  if (!rows.length) { el.innerHTML = ''; return; }
+  const emp = {};
+  rows.forEach(r => { const c = String(r['Company'] || '').trim() || '(no employer)'; emp[c] = (emp[c] || 0) + 1; });
+  const list = Object.entries(emp).sort((a, b) => b[1] - a[1]);
+  const open = el.querySelector('details') && el.querySelector('details').open ? ' open' : '';
+  el.innerHTML = `<details${open}><summary>Employers in these figures: ${list.length.toLocaleString()} (top 10 shown)</summary><table><tbody>` +
+    list.slice(0, 10).map(([c, k]) => `<tr><td>${escHtml(c)}</td><td class="num">${k.toLocaleString()}</td><td class="num">${(100 * k / rows.length).toFixed(1)}%</td></tr>`).join('') +
+    `</tbody></table></details>`;
 }
 
 // Table
@@ -869,8 +1055,11 @@ function renderTable() {
         const td = document.createElement('td');
         let val = row[col];
         if (val == null || val === 'nan' || val === 'NaN') val = '';
-        if (col === 'Min Salary' || col === 'Max Salary') {
+        if (col === 'Min Salary' || col === 'Max Salary' || col === 'Pay used') {
           td.textContent = val ? formatCurrency(Number(val), row['Salary Period']) : '';
+        } else if (col === 'In figures') {
+          td.className = row._excl ? 'excl-cell' : 'incl-cell';
+          td.textContent = String(val);
         } else if (col === 'Job Description') {
           td.className = 'desc-cell';
           const full = String(val);
@@ -980,7 +1169,7 @@ function updateFilterCounts() {
         const q = filters[tf]; if (!q) return;
         if (tf === 'Job Title') {
           const inTitle = row._titleLower.includes(q);
-          const inDesc = filters.titleIncludeDesc && row._descLower.includes(q);
+          const inDesc = filters.titleIncludeDesc && descHas(row, q);
           if (!inTitle && !inDesc) pass = false;
         }
         else if (tf === 'Company') { if (!row._companyLower.includes(q)) pass = false; }
@@ -1025,14 +1214,16 @@ function getQuarter(dateStr) {
 }
 
 function updateCharts() {
-  const annual = getStatsData().filter(r => r['Salary Period'] === 'year' && r['Min Salary'] > 0);
+  const annual = getStatsData().filter(r => r['Salary Period'] === 'year');
+  const sub = document.getElementById('distSubtitle');
+  if (sub) sub.textContent = houseMethod ? 'Histogram of annual pay (midpoint of range)' : 'Histogram of annual Min Salary';
   updateTimelineChart(annual); updateFunctionChart(annual); updateLevelChart(annual); updateRegionChart(annual); updateDistributionChart(annual);
 }
 
 function updateTimelineChart(annual) {
   const ctx = document.getElementById('chartTimeline');
   const byQ = {};
-  annual.forEach(r => { const q = getQuarter(r['Date']); if (q) { if (!byQ[q]) byQ[q] = []; byQ[q].push(r['Min Salary']); } });
+  annual.forEach(r => { const q = getQuarter(r['Date']); if (q) { if (!byQ[q]) byQ[q] = []; byQ[q].push(r._pay); } });
   // Auto-detect quarter range from data
   const allQs = Object.keys(byQ).sort();
   const labels = allQs.length > 0 ? allQs : ['No data'];
@@ -1059,7 +1250,7 @@ function updateTimelineChart(annual) {
 function updateFunctionChart(annual) {
   const ctx = document.getElementById('chartFunction');
   const byFunc = {};
-  annual.forEach(r => { const f = r['Function']; if (!f) return; if (!byFunc[f]) byFunc[f] = []; byFunc[f].push(r['Min Salary']); });
+  annual.forEach(r => { const f = r['Function']; if (!f) return; if (!byFunc[f]) byFunc[f] = []; byFunc[f].push(r._pay); });
   const sorted = Object.entries(byFunc).sort((a,b) => b[1].length - a[1].length).slice(0, 12);
   const labels = sorted.map(([f]) => f.length > 25 ? f.substring(0,23)+'...' : f);
   const fullLabels = sorted.map(([f]) => f);
@@ -1077,7 +1268,7 @@ function updateLevelChart(annual) {
   if (TABS[currentTab].hideFields.includes('Job Level')) { if (chartLevel) { chartLevel.destroy(); chartLevel = null; } return; }
   const ctx = document.getElementById('chartLevel');
   const byLevel = {};
-  annual.forEach(r => { const l = r['Job Level']; if (!l) return; if (!byLevel[l]) byLevel[l] = []; byLevel[l].push(r['Min Salary']); });
+  annual.forEach(r => { const l = r['Job Level']; if (!l) return; if (!byLevel[l]) byLevel[l] = []; byLevel[l].push(r._pay); });
   const ordered = JOB_LEVEL_ORDER.filter(l => byLevel[l] && byLevel[l].length > 0);
   const labels = ordered.map(l => l.length > 28 ? l.substring(0,26)+'...' : l);
   const medians = ordered.map(l => percentile([...byLevel[l]].sort((a,b)=>a-b), 50));
@@ -1094,7 +1285,7 @@ function updateLevelChart(annual) {
 function updateRegionChart(annual) {
   const ctx = document.getElementById('chartRegion');
   const byRegion = {};
-  annual.forEach(r => { const reg = r['Region']; if (!reg) return; if (!byRegion[reg]) byRegion[reg] = []; byRegion[reg].push(r['Min Salary']); });
+  annual.forEach(r => { const reg = r['Region']; if (!reg) return; if (!byRegion[reg]) byRegion[reg] = []; byRegion[reg].push(r._pay); });
   // Top 6 regions by count
   const topRegions = Object.entries(byRegion).sort((a,b) => b[1].length - a[1].length).slice(0,6).map(([r]) => r);
   const medians = topRegions.map(r => percentile([...byRegion[r]].sort((a,b)=>a-b), 50));
@@ -1116,7 +1307,7 @@ function updateRegionChart(annual) {
 
 function updateDistributionChart(annual) {
   const ctx = document.getElementById('chartDistribution');
-  const vals = annual.map(r => r['Min Salary']).filter(v => v >= 15000 && v <= 200000);
+  const vals = annual.map(r => r._pay).filter(v => v >= 15000 && v <= 200000);
   const binSize = 10000, bins = {};
   for (let b = 15000; b < 200000; b += binSize) bins[b] = 0;
   vals.forEach(v => { const b = Math.floor(v/binSize)*binSize; if (bins[b] !== undefined) bins[b]++; });
@@ -1131,9 +1322,12 @@ function updateDistributionChart(annual) {
   });
 }
 
+function exportRows() {
+  return filteredData.map(row => { const out = {}; TABLE_COLUMNS.forEach(col => out[col] = row[col]); return out; });
+}
+
 function exportCSV() {
-  const exportData = filteredData.map(row => { const out = {}; TABLE_COLUMNS.forEach(col => out[col] = row[col]); return out; });
-  const csv = Papa.unparse(exportData);
+  const csv = Papa.unparse(exportRows());
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1141,8 +1335,193 @@ function exportCSV() {
   URL.revokeObjectURL(url);
 }
 
-// Boot: open on the first tab. Kept last so every top-level let/const above exists.
-switchTab(0);
+// What a consultant shows at Approval 1: the search, the exclusions, how many
+// adverts and employers match, and the figures. Rows of [label, value].
+function searchSummary() {
+  const rows = [];
+  const add = (k, v) => rows.push([k, v == null ? '' : v]);
+  const narrowed = f => { const all = getUniqueValues(f); return filters[f].size > 0 && filters[f].size < all.length; };
+  add('UK Jobs Benchmarking: search summary', '');
+  add('Generated', new Date().toLocaleString('en-GB'));
+  add('Link to this search', location.href);
+  add('Tab', TABS[currentTab].label);
+  add('Quarters loaded', [...activeQuarters].sort().reverse().join(', '));
+  add('', '');
+  add('SEARCH', '');
+  add('Job title contains', filters['Job Title'] || '(any)');
+  add('Also searched in description', filters.titleIncludeDesc ? 'Yes' : 'No');
+  add('Title excludes', (filters.titleExcept || []).filter(Boolean).join(', ') || '(none)');
+  add('Company contains', filters['Company'] || '(any)');
+  add('Location contains', filters['Location'] || '(any)');
+  CHECKLIST_FIELDS.forEach(f => {
+    if (!narrowed(f)) { add(f, '(all)'); return; }
+    const all = getUniqueValues(f), out = all.filter(v => !filters[f].has(v));
+    add(f, out.length < filters[f].size ? 'All except: ' + out.join('; ') : [...filters[f]].join('; '));
+  });
+  add('Date from', filters.dateFrom || '(any)');
+  add('Date to', filters.dateTo || '(any)');
+  add('', '');
+  add('METHOD', '');
+  add('House method', houseMethod ? 'On' : 'Off (raw view)');
+  add('Pay used', houseMethod ? 'Midpoint of the advert range' : 'Min Salary');
+  if (houseMethod) {
+    add('Bounds', 'Annual £12,000 to £250,000; hourly and daily the same at 37.5 hours');
+    add('NLW floor (annual)', `${gbp(NLW_ANNUAL)} (£${NLW_HOURLY}/hr × ${NLW_FT_HOURS} hrs × 52)`);
+    add('Duplicates', 'Same title, employer, pay and period counted once');
+  }
+  add('', '');
+  add('COUNTS', '');
+  add('Adverts matching the search', filteredData.length);
+  add('Adverts in the figures', getStatsData().length);
+  Object.entries(exclCounts).forEach(([k, v]) => add('Left out: ' + k, v));
+  add('', '');
+  add('FIGURES', '');
+  periodStats().forEach(st => {
+    add(st.label + ': adverts', st.n);
+    add(st.label + ': employers', st.employers);
+    add(st.label + ': largest employer', `${st.topEmployer} (${Math.round(st.topShare * 100)}%)`);
+    const r = v => st.period === 'year' ? Math.round(v) : Math.round(v * 100) / 100;
+    add(st.label + ': P25', r(st.p25));
+    add(st.label + ': Median', r(st.p50));
+    add(st.label + ': P75', r(st.p75));
+    add(st.label + ': Mean', r(st.mean));
+    const w = poolWarnings(st);
+    add(st.label + ': reliable?', w.length ? 'No: ' + w.join(' ').replace(/&amp;/g, '&') : 'Yes');
+  });
+  return rows;
+}
+
+function exportExcel() {
+  if (typeof XLSX === 'undefined') { alert('The Excel library did not load. Use Download CSV instead.'); return; }
+  const wb = XLSX.utils.book_new();
+  const summary = XLSX.utils.aoa_to_sheet(searchSummary());
+  summary['!cols'] = [{ wch: 34 }, { wch: 90 }];
+  XLSX.utils.book_append_sheet(wb, summary, 'Search summary');
+  const ads = XLSX.utils.json_to_sheet(exportRows(), { header: TABLE_COLUMNS });
+  XLSX.utils.book_append_sheet(wb, ads, 'Adverts');
+  const stamp = new Date().toISOString().slice(0, 10);
+  const q = (filters['Job Title'] || 'search').replace(/[^a-z0-9]+/gi, '-').slice(0, 40);
+  XLSX.writeFile(wb, `uk-jobs-${q}-${stamp}.xlsx`);
+}
+
+// ---- Shareable links: the search lives in the address after '#'.
+let pendingState = null;
+
+function stateToHash() {
+  const p = new URLSearchParams();
+  p.set('tab', currentTab);
+  p.set('qs', [...activeQuarters].join(','));
+  if (filters['Job Title']) p.set('q', filters['Job Title']);
+  if (filters.titleIncludeDesc) p.set('desc', '1');
+  (filters.titleExcept || []).filter(Boolean).forEach(e => p.append('ex', e));
+  if (filters['Company']) p.set('co', filters['Company']);
+  if (filters['Location']) p.set('loc', filters['Location']);
+  CHECKLIST_FIELDS.forEach(f => {
+    const all = f === 'Dataset' ? allDatasetNames() : getUniqueValues(f);
+    if (filters[f].size > 0 && filters[f].size < all.length) [...filters[f]].forEach(v => p.append('f.' + f, v));
+  });
+  if (filters.dateFrom) p.set('from', filters.dateFrom);
+  if (filters.dateTo) p.set('to', filters.dateTo);
+  if (!houseMethod) p.set('hm', '0');
+  if (hiddenIds.size) p.set('hide', [...hiddenIds].join(','));
+  return '#' + p.toString();
+}
+
+function updateHash() {
+  if (restoring || currentTab < 0 || !tabState[currentTab] || !tabState[currentTab].ready) return;
+  try { history.replaceState(null, '', stateToHash()); } catch (e) {}
+}
+
+function parseHash() {
+  if (!location.hash || location.hash.length < 2) return null;
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (!p.has('tab')) return null;
+  const tab = Math.max(0, Math.min(TABS.length - 1, Number(p.get('tab')) || 0));
+  const checks = {};
+  for (const [k, v] of p.entries()) if (k.startsWith('f.')) (checks[k.slice(2)] = checks[k.slice(2)] || []).push(v);
+  return { tab, qs: (p.get('qs') || '').split(',').filter(Boolean), q: p.get('q') || '', desc: p.get('desc') === '1',
+    ex: p.getAll('ex'), co: p.get('co') || '', loc: p.get('loc') || '', checks,
+    from: p.get('from') || '', to: p.get('to') || '', hm: p.get('hm') !== '0',
+    hide: (p.get('hide') || '').split(',').filter(Boolean).map(Number) };
+}
+
+function applyPendingState() {
+  const ps = pendingState; pendingState = null;
+  restoring = true;
+  filters['Job Title'] = ps.q.toLowerCase();
+  filters.titleIncludeDesc = ps.desc;
+  filters.titleExcept = ps.ex.map(e => e.toLowerCase());
+  filters['Company'] = ps.co.toLowerCase();
+  filters['Location'] = ps.loc.toLowerCase();
+  allDatasetNames().forEach(n => seenDatasets.add(n));
+  Object.entries(ps.checks).forEach(([f, vals]) => { if (filters[f] instanceof Set) filters[f] = new Set(vals); });
+  filters.dateFrom = ps.from; filters.dateTo = ps.to;
+  houseMethod = ps.hm;
+  hiddenIds = new Set(ps.hide);
+  tabState[currentTab].hiddenIds = hiddenIds;
+  buildSidebar();
+  restoring = false;
+  applyFilters();
+}
+
+function copyLink() {
+  updateHash();
+  const btn = document.getElementById('copyLinkBtn');
+  const done = () => { if (btn) { btn.textContent = 'Link copied'; setTimeout(() => btn.textContent = 'Copy link to this search', 1800); } };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(location.href).then(done, () => prompt('Copy this link:', location.href));
+  else prompt('Copy this link:', location.href);
+}
+
+// ---- Thin market: last two years, every region, every dataset (house method,
+// "Niche roles"). Loads any quarters in that window not yet in memory.
+function quarterEnd(q) {
+  const m = String(q.quarter || q.id).match(/(\d{4})Q([1-4])/);
+  if (!m) return null;
+  const y = Number(m[1]), qq = Number(m[2]);
+  return new Date(Date.UTC(y, qq * 3, 0)).toISOString().slice(0, 10);
+}
+
+function widenThinMarket() {
+  const from = new Date(); from.setFullYear(from.getFullYear() - 2);
+  const fromIso = from.toISOString().slice(0, 10);
+  const inWindow = quartersIndex.filter(q => { const e = quarterEnd(q); return e && e >= fromIso; });
+  // Smaller datasets first, then the main scrape newest first, while the
+  // browser can hold them. Older main-scrape quarters past the budget are skipped.
+  const wanted = inWindow.filter(q => !activeQuarters.has(q.id) || !loadedQuarters.has(q.id))
+    .sort((a, b) => ((a.dataset || MAIN_DATASET) === MAIN_DATASET) - ((b.dataset || MAIN_DATASET) === MAIN_DATASET)
+      || String(quarterEnd(b)).localeCompare(String(quarterEnd(a))));
+  let budget = ROW_BUDGET - rowsInMemory();
+  const toLoad = [], skipped = [];
+  wanted.forEach(q => { const n = rowsToFetch([q]); if (n <= budget) { toLoad.push(q); budget -= n; } else skipped.push(q); });
+  const extraRows = rowsToFetch(toLoad);
+  const skipNote = skipped.length ? `\n\nTo stay within what the browser can hold, these are skipped: ${skipped.map(q => (q.dataset || MAIN_DATASET) + ' ' + (q.quarter || q.id)).join(', ')}. To search one of them, reload the page and tick it under Quarters before widening.` : '';
+  if ((extraRows > 300000 || skipped.length) && !confirm(`This loads ${extraRows.toLocaleString()} more rows (${toLoad.length} quarter files) and can take a minute or two.${skipNote}\n\nCarry on?`)) return;
+  const finish = () => {
+    filters.dateFrom = fromIso; filters.dateTo = '';
+    filters['Location'] = '';
+    filters['Region'] = new Set(getUniqueValues('Region'));
+    filters['Dataset'] = new Set(allDatasetNames().filter(datasetIsLoaded));
+    allDatasetNames().forEach(n => seenDatasets.add(n));
+    buildSidebar(); applyFilters();
+  };
+  if (!toLoad.length) { finish(); return; }
+  toLoad.forEach(q => activeQuarters.add(q.id));
+  buildSidebar(); showProgressBanner();
+  const st = tabState[currentTab];
+  let done = 0;
+  const next = () => {
+    if (done >= toLoad.length) { hideProgressBanner(); if (st.tab === currentTab) { rebuildAllData(); finish(); } return; }
+    const q = toLoad[done];
+    if (st.tab === currentTab) updateProgressBanner('Widening: loading ' + (q.dataset || MAIN_DATASET) + ' ' + (q.quarter || q.id) + ' (' + (done + 1) + '/' + toLoad.length + ')…');
+    loadQuarter(q.id, st).then(() => { done++; next(); }).catch(err => { console.error('Failed to load', q.id, err); done++; next(); });
+  };
+  next();
+}
+
+// Boot: open on the first tab, or the tab a shared link names. Kept last so
+// every top-level let/const above exists.
+pendingState = parseHash();
+switchTab(pendingState ? pendingState.tab : 0);
 </script>
 </body>
 </html>
